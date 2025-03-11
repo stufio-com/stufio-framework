@@ -14,7 +14,9 @@ from stufio.utilities import (
     send_email_validation_email,
 )
 
-from stufio.core.config import settings
+from stufio.core.config import get_settings
+
+settings = get_settings()
 
 router = APIRouter()
 

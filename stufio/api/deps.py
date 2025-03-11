@@ -7,9 +7,10 @@ from motor.core import AgnosticDatabase
 
 from stufio.db.clickhouse import ClickhouseDatabase
 from stufio import crud, models, schemas
-from stufio.core.config import settings
+from stufio.core.config import get_settings
 from stufio.db.mongo import MongoDatabase
 
+settings = get_settings()
 reusable_oauth2 = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/login/oauth")
 reusable_oauth2_optional = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/login/oauth", auto_error=False)
 

@@ -3,8 +3,10 @@ from typing import Optional
 from odmantic import Field
 from stufio.db.mongo_base import MongoBase, datetime_now_sec
 from datetime import datetime, timedelta
-from stufio.core.config import settings
+from stufio.core.config import get_settings
 from bson import ObjectId
+
+settings = get_settings()
 
 def datetime_expires_sec() -> datetime:
     """Return max expiration time for a token"""

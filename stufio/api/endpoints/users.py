@@ -7,11 +7,13 @@ from motor.core import AgnosticDatabase
 
 from stufio import crud, models, schemas
 from stufio.api import deps
-from stufio.core.config import settings
+from stufio.core.config import get_settings
 from stufio.core import security
 from stufio.utilities import (
     send_new_account_email,
 )
+
+settings = get_settings()
 
 router = APIRouter()
 

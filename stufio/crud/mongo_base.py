@@ -7,7 +7,6 @@ from odmantic import AIOEngine
 
 from stufio.db.mongo_base import MongoBase
 from stufio.db.mongo import get_engine
-
 from stufio.core.config import get_settings
 
 settings = get_settings()

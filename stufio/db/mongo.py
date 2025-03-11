@@ -1,10 +1,12 @@
 from typing import Any, Optional
-from stufio.core.config import settings
+from stufio.core.config import get_settings
 from stufio.__version__ import __version__
 from motor.motor_asyncio import AsyncIOMotorClient
 from motor import core
 from odmantic import AIOEngine
 from pymongo.driver_info import DriverInfo
+
+settings = get_settings()
 
 DRIVER_INFO = DriverInfo(name="stufio-fastapi-mongodb", version=__version__)
 
