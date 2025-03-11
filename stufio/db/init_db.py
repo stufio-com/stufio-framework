@@ -1,3 +1,4 @@
+import traceback
 from typing import Optional
 from clickhouse_connect.driver.asyncclient import AsyncClient
 from motor.core import AgnosticDatabase
@@ -36,6 +37,7 @@ async def init_db(
 
     except Exception as e:
         logger.error(f"Database initialization error: {str(e)}")
+        traceback.print_exc()
         raise
 
 

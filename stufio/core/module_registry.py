@@ -26,12 +26,12 @@ class ModuleRegistry:
         Returns a list of module names.
         """
         module_dirs = []
-        
+
         # Use framework's default module dir
         stufio_modules_dir = getattr(settings, "STUFIO_MODULES_DIR", 
                                    os.path.join(os.path.dirname(__file__), "..", "modules"))
         module_dirs.append(stufio_modules_dir)
-        
+
         # Add user-specified module directories
         user_modules_dir = getattr(settings, "MODULES_DIR", None)
         if user_modules_dir:
@@ -39,9 +39,11 @@ class ModuleRegistry:
                 module_dirs.extend(user_modules_dir)
             else:
                 module_dirs.append(user_modules_dir)
-                
+
+        logger.warning(f"Discovering modules in directories: {', '.join(module_dirs)}")
+
         discovered_modules = []
-        
+
         for modules_dir in module_dirs:
             logger.debug(f"Discovering modules in folder: {modules_dir}")
 
@@ -69,7 +71,7 @@ class ModuleRegistry:
         """Load a module by name and return its ModuleInterface implementation."""
         try:
             logger.debug(f"Loading module: {module_name}")
-            
+
             # Get module path - calculate correct absolute path
             modules_dir = settings.MODULES_DIR
             module_path = os.path.join(modules_dir, module_name)
