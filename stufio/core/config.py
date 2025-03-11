@@ -1,9 +1,8 @@
 import os
 import secrets
 from typing import Any, Dict, List, Optional, Union
-from functools import lru_cache
 
-from pydantic import AnyHttpUrl, EmailStr, HttpUrl, field_validator
+from pydantic import AnyHttpUrl, ConfigDict, EmailStr, HttpUrl, field_validator
 from pydantic_core.core_schema import ValidationInfo
 from pydantic_settings import BaseSettings
 
@@ -113,6 +112,9 @@ class StufioSettings(BaseSettings):
         """Get the active settings instance"""
         return _active_settings or StufioSettings()
 
+    # Allow extra attributes in this model
+    model_config = ConfigDict(extra="allow")
+
 
 # Default settings instance
 settings = StufioSettings()
@@ -130,7 +132,6 @@ def configure_settings(settings_instance):
     return _active_settings
 
 
-@lru_cache()
 def get_settings():
     """Get the active settings, possibly from cache"""
-    return _active_settings or StufioSettings()
+    return _active_settings

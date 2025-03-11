@@ -1,12 +1,9 @@
 from typing import Any, Dict, Optional, Union
-
 from motor.core import AgnosticDatabase
-
 from stufio.core.security import get_password_hash, verify_password
 from stufio.crud.mongo_base import CRUDMongoBase
 from stufio.models.user import User
 from stufio.schemas import UserCreate, UserInDB, UserUpdate, NewTOTP
-
 
 # ODM, Schema, Schema
 class CRUDUser(CRUDMongoBase[User, UserCreate, UserUpdate]):

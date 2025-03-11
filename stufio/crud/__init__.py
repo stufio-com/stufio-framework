@@ -9,3 +9,5 @@ from stufio.crud.crud_token import token
 # from app.schemas.item import ItemCreate, ItemUpdate
 
 # item = CRUDMongoBase[Item, ItemCreate, ItemUpdate](Item)
+
+__all__ = ["user", "token"]
