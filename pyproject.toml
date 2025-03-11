@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stufio"
+version = "0.1.0"
+description = "Stufio.com FastAPI/Starlette framework"
+authors = [{name = "Ihar Finchuk", email = "if@if.codes"}]
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "fastapi>=0.100.0",
+    "starlette>=0.27.0",
+    "uvicorn>=0.12.0",
+    "pydantic>=2.0.0",
+    "motor>=3.0.0",
+    "clickhouse-connect>=0.5.0",
+]
+
+[project.urls]
+repository = "https://github.com/stufio-com/stufio"

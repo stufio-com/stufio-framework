@@ -1,0 +1,181 @@
+import importlib
+import inspect
+import logging
+import os
+from typing import Dict, List, Optional, Any
+from fastapi import FastAPI
+
+from app.config import settings
+from stufio.core.migrations.manager import migration_manager
+import traceback
+
+logger = logging.getLogger(__name__)
+
+class ModuleRegistry:
+    """Registry for all modules in the application."""
+
+    def __init__(self):
+        self.modules: Dict[str, "ModuleInterface"] = {}
+        self.router_prefix = settings.API_V1_STR
+
+    def discover_modules(self) -> List[str]:
+        """
+        Discover available modules in the modules directory.
+        Returns a list of module names.
+        """
+        browse_dirs = [settings.STUFIO_MODULES_DIR]
+        if settings.MODULES_DIR:
+            if isinstance(settings.MODULES_DIR, list):
+                browse_dirs.extend(settings.MODULES_DIR)
+            else:
+                browse_dirs.append(settings.MODULES_DIR)
+                
+        for modules_dir in browse_dirs:
+            logger.debug(f"Discovering modules in folder: {modules_dir}")
+
+            # Ensure modules directory exists
+            if not os.path.exists(modules_dir):
+                logger.error(f"Modules directory not found: {modules_dir}")
+                continue
+            
+            # Ensure modules directory exists
+            if not os.path.exists(modules_dir):
+                logger.error(f"Modules directory not found: {modules_dir}")
+                return []
+
+            module_names = []
+
+            # Find all Python packages (directories with __init__.py)
+            for item in os.listdir(modules_dir):
+                module_path = os.path.join(modules_dir, item)
+                if (os.path.isdir(module_path) and 
+                    os.path.exists(os.path.join(module_path, "__init__.py")) and
+                    item != "__pycache__"):
+                    module_names.append(item)
+
+            if module_names:
+                logger.info(f"Discovered modules: {', '.join(module_names)}")
+            else:
+                logger.warning(f"No modules found in {modules_dir}")
+
+            logger.debug(f"Discovered modules: {module_names}")
+
+        return module_names
+
+    def load_module(self, module_name: str, discover_migrations: bool = False) -> Optional["ModuleInterface"]:
+        """Load a module by name and return its ModuleInterface implementation."""
+        try:
+            logger.debug(f"Loading module: {module_name}")
+            
+            # Get module path - calculate correct absolute path
+            modules_dir = settings.MODULES_DIR
+            module_path = os.path.join(modules_dir, module_name)
+
+            # Import the module
+            module = importlib.import_module(f"modules.{module_name}")
+
+            # Get module version
+            version = getattr(module, "__version__", "0.0.0")
+            if hasattr(module, "__version__") and isinstance(module.__version__, str):
+                version = module.__version__
+
+            # Ensure migrations path exists - create if needed
+            if discover_migrations:
+                # Discover migrations for this module (now safe since directory exists)
+                migration_manager.discover_module_migrations(module_path, module_name, version)
+
+            # Look for ModuleInterface implementation
+            for name, obj in inspect.getmembers(module):
+                if (inspect.isclass(obj) and 
+                    name != "ModuleInterface" and 
+                    hasattr(obj, "register") and
+                    hasattr(obj, "get_models")):
+
+                    # Create an instance of the module interface
+                    instance = obj()
+                    self.modules[module_name] = instance
+                    logger.info(f"Successfully loaded module: {module_name} (v{version})")
+                    return instance
+
+            logger.warning(f"Module {module_name} does not implement ModuleInterface")
+            return None
+
+        except Exception as e:
+            logger.error(f"Failed to load module {module_name}: {str(e)}")
+            traceback.print_exc()
+            return None
+
+    def register_all_modules(self, app: FastAPI) -> None:
+        """
+        Register all modules with the FastAPI app.
+        Note: This only registers routes, NOT middleware.
+        """
+        for module_name, module in self.modules.items():
+            try:
+                # Only register routes, middleware should be added separately
+                module.register_routes(app)
+                logger.info(f"Registered module: {module_name}")
+            except Exception as e:
+                logger.error(f"Failed to register module {module_name}: {e}")
+
+    def get_all_models(self) -> List[Any]:
+        """Get all database models from all registered modules."""
+        all_models = []
+
+        for name, module in self.modules.items():
+            try:
+                models = module.get_models()
+                all_models.extend(models)
+                logger.debug(f"Loaded {len(models)} models from module: {name}")
+            except Exception as e:
+                logger.error(f"Failed to get models from module {name}: {str(e)}")
+
+        return all_models
+
+    def get_all_middlewares(self) -> List[tuple]:
+        """Get all middlewares from all modules."""
+        middlewares = []
+        for module_name, module in self.modules.items():
+            try:
+                module_middlewares = module.get_middlewares()
+                middlewares.extend(module_middlewares)
+            except Exception as e:
+                logger.error(f"Failed to get middlewares from module {module_name}: {e}")
+        return middlewares
+
+    def register_module_routes(self, app: FastAPI) -> None:
+        """Register routes from all modules."""
+        for module_name, module in self.modules.items():
+            try:
+                module.register_routes(app)
+                logger.info(f"Registered routes for module: {module_name}")
+            except Exception as e:
+                logger.error(f"Failed to register routes for module {module_name}: {e}")
+
+
+class ModuleInterface:
+    """Interface that all modules must implement for registration."""
+
+    def register_routes(self, app: FastAPI) -> None:
+        """Register routes with the FastAPI application."""
+        pass
+
+    def get_middlewares(self) -> List[tuple]:
+        """Return middleware classes that should be added to the app.
+        
+        Returns:
+            List of (middleware_class, args, kwargs) tuples
+        """
+        return []
+
+    def register(self, app: FastAPI) -> None:
+        """Legacy method for backwards compatibility."""
+        self.register_routes(app)
+
+    def get_models(self) -> List[Any]:
+        """Return a list of database models defined by this module."""
+        return []
+
+
+# Singleton instance
+registry = ModuleRegistry()

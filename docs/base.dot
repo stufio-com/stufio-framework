@@ -1,0 +1,54 @@
+digraph ApplicationArchitecture {
+  rankdir=LR;
+  node [shape=box, style=filled, fillcolor="#D9EAF7"];
+
+  subgraph cluster_CoreApp {
+    label="Core Application";
+    "Main (main.py)";
+    "Config (config.py)";
+    "Module Registry (module_registry.py)";
+    "Migration Manager";
+    "DB Initialization (init_db.py)";
+  }
+
+  subgraph cluster_Modules {
+    label="Pluggable Modules";
+
+    subgraph cluster_OtherModules {
+      label="Other Modules (similar structure)";
+      "Module APIs";
+      "Module Models";
+      "Module Middleware";
+    }
+
+    subgraph cluster_ActivityModule {
+      label="Activity Module";
+      "Activity API";
+      "Activity Models";
+      "Activity Middleware";
+    }
+  }
+
+  subgraph cluster_Databases {
+    label="Databases";
+    MongoDB;
+    ClickHouse;
+    Redis;
+  }
+
+  "Main (main.py)" -> "Module Registry (module_registry.py)";
+  "Module Registry (module_registry.py)" -> "Activity API";
+  "Module Registry (module_registry.py)" -> "Module APIs";
+  "Main (main.py)" -> "DB Initialization (init_db.py)";
+  "DB Initialization (init_db.py)" -> MongoDB;
+  "DB Initialization (init_db.py)" -> ClickHouse;
+  "Main (main.py)" -> Redis;
+
+  "Activity API" -> "Activity Models" -> MongoDB;
+  "Activity Models" -> ClickHouse;
+  "Module APIs" -> "Module Models" -> ClickHouse;
+  "Module Models" -> MongoDB;
+
+  "Activity Middleware" -> "Main (main.py)";
+  "Module Middleware" -> "Main (main.py)";
+}
