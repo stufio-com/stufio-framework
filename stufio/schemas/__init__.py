@@ -1,7 +1,14 @@
-from .base_type import BaseEnum
-from .base_schema import BaseSchema, MetadataBaseSchema, MetadataBaseCreate, MetadataBaseUpdate, MetadataBaseInDBBase, PaginatedResponse
-from .msg import Msg, ResultMsg
-from .token import (
+from stufio.schemas.base_type import BaseEnum
+from stufio.schemas.base_schema import (
+    BaseSchema,
+    MetadataBaseSchema,
+    MetadataBaseCreate,
+    MetadataBaseUpdate,
+    MetadataBaseInDBBase,
+    PaginatedResponse,
+)
+from stufio.schemas.msg import Msg, ResultMsg
+from stufio.schemas.token import (
     RefreshTokenCreate,
     RefreshTokenUpdate,
     RefreshToken,
@@ -10,6 +17,6 @@ from .token import (
     MagicTokenPayload,
     WebToken,
 )
-from .user import User, UserCreate, UserInDB, UserUpdate, UserLogin
-from .emails import EmailContent, EmailValidation
-from .totp import NewTOTP, EnableTOTP
+from stufio.schemas.user import User, UserCreate, UserInDB, UserUpdate, UserLogin
+from stufio.schemas.emails import EmailContent, EmailValidation
+from stufio.schemas.totp import NewTOTP, EnableTOTP

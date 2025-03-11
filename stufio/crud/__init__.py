@@ -1,5 +1,5 @@
-from .crud_user import user
-from .crud_token import token
+from stufio.crud.crud_user import user
+from stufio.crud.crud_token import token
 
 
 # For a new basic set of CRUD operations you could just do

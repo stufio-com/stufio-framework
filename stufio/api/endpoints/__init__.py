@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from . import (
+from stufio.api.endpoints import (
     login,
     users,
     proxy,
