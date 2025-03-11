@@ -2,7 +2,8 @@ from __future__ import annotations
 from motor.core import AgnosticDatabase
 
 from stufio.crud.mongo_base import CRUDMongoBase
-from stufio.models import User, Token
+from stufio.models.user import User
+from stufio.models.token import Token
 from stufio.schemas import RefreshTokenCreate, RefreshTokenUpdate
 
 
