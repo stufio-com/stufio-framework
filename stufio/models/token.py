@@ -14,9 +14,9 @@ def datetime_expires_sec() -> datetime:
     return datetime.now().replace(microsecond=0) + timedelta(seconds=max_expire)
 
 
-# Fix the reference syntax to match ODMantic's requirements
+# Fix the reference syntax - ODMantic uses type annotation for reference
 class Token(MongoBase):
     token: str
-    authenticates_id: Optional[User] = Reference(User)  # Use Reference with explicit class
+    authenticates_id: Optional[User] = Reference()
     created: datetime = Field(default_factory=datetime_now_sec)
     expires: datetime = Field(default_factory=datetime_expires_sec)
