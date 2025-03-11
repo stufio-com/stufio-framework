@@ -23,5 +23,4 @@ repository = "https://github.com/stufio-com/stufio"
 
 [tool.setuptools]
 package-dir = {"" = "."}
-packages.find = {}  # Correct syntax for find_packages
-
+packages.find = {include = ["stufio", "stufio.*"]}
