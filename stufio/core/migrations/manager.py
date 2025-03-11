@@ -70,7 +70,7 @@ class MigrationManager:
                 import_path_generator=lambda rel_path: f"stufio.core.migrations.migrations.{version_dir}.{os.path.splitext(os.path.basename(rel_path))[0]}"
             )
 
-    def discover_module_migrations(self, module_path: str, module_name: str, module_version: str) -> None:
+    def discover_module_migrations(self, module_path: str, module_name: str, module_version: str, module_import_path: str = None) -> None:
         """
         Discover migrations in a module.
         
@@ -78,12 +78,27 @@ class MigrationManager:
             module_path: Path to the module
             module_name: Name of the module
             module_version: Module version (ignored for date-based migrations)
+            module_import_path: Optional pre-calculated import path for the module
         """
         migrations_path = os.path.join(module_path, "migrations")
 
         if not os.path.exists(migrations_path):
             logger.debug(f"No migrations folder, skipping: {migrations_path}")  
             return
+
+        # If no import path provided, calculate it (for backward compatibility)
+        if module_import_path is None:
+            # Determine the module's import path using the same logic as ModuleRegistry
+            path_parts = os.path.normpath(module_path).split(os.sep)
+            
+            if len(path_parts) >= 3:
+                parent2 = path_parts[-3]
+                parent1 = path_parts[-2]
+                module_import_path = f"{parent2}.{parent1}.{module_name}"
+            else:
+                module_import_path = f"stufio.modules.{module_name}"
+            
+        logger.debug(f"Using module import path: {module_import_path} for migrations")
 
         # For modules, look for date-based version directories like v20250308
         try:

@@ -110,8 +110,13 @@ class ModuleRegistry:
 
             # Ensure migrations path exists - create if needed
             if discover_migrations:
-                # Discover migrations for this module
-                migration_manager.discover_module_migrations(module_path, module_name, version)
+                # Discover migrations for this module - pass the import path
+                migration_manager.discover_module_migrations(
+                    module_path=module_path, 
+                    module_name=module_name, 
+                    module_version=version,
+                    module_import_path=import_path  # Pass the already calculated import path
+                )
 
             # Look for ModuleInterface implementation
             for name, obj in inspect.getmembers(module):
