@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Optional
 from odmantic import Reference, Field
 from stufio.db.mongo_base import MongoBase, datetime_now_sec
-from . import User  
+from stufio.models.user import User
 from datetime import datetime, timedelta
 from stufio.core.config import settings
 
