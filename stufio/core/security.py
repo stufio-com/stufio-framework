@@ -7,8 +7,10 @@ from passlib.totp import TOTP
 from passlib.exc import TokenError, MalformedTokenError
 import uuid
 
-from app.config import settings
+from stufio.core.config import get_settings
 from stufio.schemas import NewTOTP
+
+settings = get_settings()
 
 """
 https://github.com/OWASP/CheatSheetSeries/blob/master/cheatsheets/Authentication_Cheat_Sheet.md

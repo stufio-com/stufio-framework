@@ -5,10 +5,12 @@ import os
 from typing import Dict, List, Optional, Any
 from fastapi import FastAPI
 
-from app.config import settings
+# Remove the external app dependency
+from stufio.core.config import get_settings
 from stufio.core.migrations.manager import migration_manager
 import traceback
 
+settings = get_settings()
 logger = logging.getLogger(__name__)
 
 class ModuleRegistry:
@@ -16,34 +18,37 @@ class ModuleRegistry:
 
     def __init__(self):
         self.modules: Dict[str, "ModuleInterface"] = {}
-        self.router_prefix = settings.API_V1_STR
+        self.router_prefix = getattr(settings, "API_V1_STR", "/api/v1")
 
     def discover_modules(self) -> List[str]:
         """
         Discover available modules in the modules directory.
         Returns a list of module names.
         """
-        browse_dirs = [settings.STUFIO_MODULES_DIR]
-        if settings.MODULES_DIR:
-            if isinstance(settings.MODULES_DIR, list):
-                browse_dirs.extend(settings.MODULES_DIR)
+        module_dirs = []
+        
+        # Use framework's default module dir
+        stufio_modules_dir = getattr(settings, "STUFIO_MODULES_DIR", 
+                                   os.path.join(os.path.dirname(__file__), "..", "modules"))
+        module_dirs.append(stufio_modules_dir)
+        
+        # Add user-specified module directories
+        user_modules_dir = getattr(settings, "MODULES_DIR", None)
+        if user_modules_dir:
+            if isinstance(user_modules_dir, list):
+                module_dirs.extend(user_modules_dir)
             else:
-                browse_dirs.append(settings.MODULES_DIR)
+                module_dirs.append(user_modules_dir)
                 
-        for modules_dir in browse_dirs:
+        discovered_modules = []
+        
+        for modules_dir in module_dirs:
             logger.debug(f"Discovering modules in folder: {modules_dir}")
 
             # Ensure modules directory exists
             if not os.path.exists(modules_dir):
                 logger.error(f"Modules directory not found: {modules_dir}")
                 continue
-            
-            # Ensure modules directory exists
-            if not os.path.exists(modules_dir):
-                logger.error(f"Modules directory not found: {modules_dir}")
-                return []
-
-            module_names = []
 
             # Find all Python packages (directories with __init__.py)
             for item in os.listdir(modules_dir):
@@ -51,16 +56,14 @@ class ModuleRegistry:
                 if (os.path.isdir(module_path) and 
                     os.path.exists(os.path.join(module_path, "__init__.py")) and
                     item != "__pycache__"):
-                    module_names.append(item)
+                    discovered_modules.append(item)
 
-            if module_names:
-                logger.info(f"Discovered modules: {', '.join(module_names)}")
-            else:
-                logger.warning(f"No modules found in {modules_dir}")
+        if discovered_modules:
+            logger.info(f"Discovered modules: {', '.join(discovered_modules)}")
+        else:
+            logger.warning("No modules found")
 
-            logger.debug(f"Discovered modules: {module_names}")
-
-        return module_names
+        return discovered_modules
 
     def load_module(self, module_name: str, discover_migrations: bool = False) -> Optional["ModuleInterface"]:
         """Load a module by name and return its ModuleInterface implementation."""

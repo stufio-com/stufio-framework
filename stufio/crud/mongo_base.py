@@ -7,8 +7,10 @@ from odmantic import AIOEngine
 
 from stufio.db.mongo_base import MongoBase
 from stufio.db.mongo import get_engine
-from app.config import settings
 
+from stufio.core.config import get_settings
+
+settings = get_settings()
 ModelType = TypeVar("ModelType", bound=MongoBase)
 CreateSchemaType = TypeVar("CreateSchemaType", bound=BaseModel)
 UpdateSchemaType = TypeVar("UpdateSchemaType", bound=BaseModel)

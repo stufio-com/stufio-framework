@@ -7,8 +7,9 @@ from stufio import crud, schemas
 from stufio.core.migrations.manager import migration_manager
 from stufio.core.module_registry import registry
 
-from app.config import settings
+from stufio.core.config import get_settings
 
+settings = get_settings()
 logger = logging.getLogger(__name__)
 
 

@@ -1,5 +1,5 @@
 from typing import Optional
-from app.config import settings
+from stufio.core.config import get_settings
 from app.__version__ import __version__
 
 import clickhouse_connect
@@ -8,6 +8,7 @@ from clickhouse_connect.driver.exceptions import ClickHouseError
 
 from urllib.parse import urlparse
 
+settings = get_settings()
 
 def get_database_from_dsn(dsn: str = settings.CLICKHOUSE_DSN) -> str:
     """Extract database name from Clickhouse DSN"""

@@ -1,6 +1,7 @@
 import os
 import secrets
 from typing import Any, Dict, List, Optional, Union
+from functools import lru_cache
 
 from pydantic import AnyHttpUrl, EmailStr, HttpUrl, field_validator
 from pydantic_core.core_schema import ValidationInfo
@@ -91,13 +92,13 @@ class StufioSettings(BaseSettings):
 
     # MODULES SETTINGS
     MODULES_DIR: Optional[str] = None
-    
+
     STUFIO_MODULES_DIR: str = os.path.normpath(
         os.path.join(
             os.path.dirname(os.path.dirname(__file__)), "modules"
         )
     )
-    
+
     # Security and Rate Limiting Settings
     RATE_LIMIT_IP_MAX_REQUESTS: int = 100
     RATE_LIMIT_IP_WINDOW_SECONDS: int = 60
@@ -106,3 +107,30 @@ class StufioSettings(BaseSettings):
     RATE_LIMIT_USER_WINDOW_SECONDS: int = 60
 
     SECURITY_MAX_UNIQUE_IPS_PER_DAY: int = 5
+
+    @classmethod
+    def get_settings(cls):
+        """Get the active settings instance"""
+        return _active_settings or StufioSettings()
+
+
+# Default settings instance
+settings = StufioSettings()
+
+# Registry for the active settings instance
+_active_settings = settings
+
+def configure_settings(settings_instance):
+    """
+    Configure the framework to use a custom settings instance.
+    This should be called early in your application's startup.
+    """
+    global _active_settings
+    _active_settings = settings_instance
+    return _active_settings
+
+
+@lru_cache()
+def get_settings():
+    """Get the active settings, possibly from cache"""
+    return _active_settings or StufioSettings()

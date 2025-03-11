@@ -4,7 +4,6 @@ from motor.core import AgnosticDatabase
 from stufio.crud.mongo_base import CRUDMongoBase
 from stufio.models import User, Token
 from stufio.schemas import RefreshTokenCreate, RefreshTokenUpdate
-from app.config import settings
 
 
 class CRUDToken(CRUDMongoBase[Token, RefreshTokenCreate, RefreshTokenUpdate]):

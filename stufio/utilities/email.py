@@ -5,9 +5,10 @@ from typing import Any, Dict
 import emails
 from emails.template import JinjaTemplate
 
-from app.config import settings
+from stufio.core.config import get_settings
 from stufio.schemas import EmailContent, EmailValidation
 
+settings = get_settings()
 
 def send_email(
     email_to: str,
