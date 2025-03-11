@@ -1,10 +1,10 @@
 from __future__ import annotations
 from typing import Optional
-from odmantic import Reference, Field
+from odmantic import Field
 from stufio.db.mongo_base import MongoBase, datetime_now_sec
-from stufio.models.user import User
 from datetime import datetime, timedelta
 from stufio.core.config import settings
+from bson import ObjectId
 
 def datetime_expires_sec() -> datetime:
     """Return max expiration time for a token"""
@@ -14,9 +14,8 @@ def datetime_expires_sec() -> datetime:
     return datetime.now().replace(microsecond=0) + timedelta(seconds=max_expire)
 
 
-# Fix the reference syntax - ODMantic uses type annotation for reference
 class Token(MongoBase):
     token: str
-    authenticates_id: Optional[User] = Reference()
+    authenticates_id: Optional[ObjectId] = None  # Store just the ObjectId instead of a reference
     created: datetime = Field(default_factory=datetime_now_sec)
     expires: datetime = Field(default_factory=datetime_expires_sec)
