@@ -18,6 +18,7 @@ class ModuleRegistry:
 
     def __init__(self):
         self.modules: Dict[str, "ModuleInterface"] = {}
+        self.module_paths: Dict[str, str] = {}  # Store module paths by name
         self.router_prefix = getattr(settings, "API_V1_STR", "/api/v1")
 
     def discover_modules(self) -> List[str]:
@@ -26,6 +27,7 @@ class ModuleRegistry:
         Returns a list of module names.
         """
         module_dirs = []
+        self.module_paths = {}  # Reset module paths
 
         # Use framework's default module dir
         stufio_modules_dir = getattr(settings, "STUFIO_MODULES_DIR", 
@@ -40,7 +42,7 @@ class ModuleRegistry:
             else:
                 module_dirs.append(user_modules_dir)
 
-        logger.warning(f"Discovering modules in directories: {', '.join(module_dirs)}")
+        logger.info(f"Discovering modules in directories: {', '.join(module_dirs)}")
 
         discovered_modules = []
 
@@ -59,6 +61,8 @@ class ModuleRegistry:
                     os.path.exists(os.path.join(module_path, "__init__.py")) and
                     item != "__pycache__"):
                     discovered_modules.append(item)
+                    # Store module path for later use
+                    self.module_paths[item] = module_path
 
         if discovered_modules:
             logger.info(f"Discovered modules: {', '.join(discovered_modules)}")
@@ -72,12 +76,32 @@ class ModuleRegistry:
         try:
             logger.debug(f"Loading module: {module_name}")
 
-            # Get module path - calculate correct absolute path
-            modules_dir = settings.MODULES_DIR
-            module_path = os.path.join(modules_dir, module_name)
-
-            # Import the module
-            module = importlib.import_module(f"modules.{module_name}")
+            # Get module path from the cached paths
+            if module_name not in self.module_paths:
+                logger.error(f"Module path for {module_name} not found. Did you run discover_modules first?")
+                return None
+                
+            module_path = self.module_paths[module_name]
+            
+            # Determine the import path dynamically based on directory structure
+            # Split the path into parts and get the last 3 components (parent, parent, module_name)
+            path_parts = os.path.normpath(module_path).split(os.sep)
+            
+            # Build import path based on actual directory structure
+            if len(path_parts) >= 3:
+                # Use the last 3 parts of the path to create the import path
+                # e.g., .../stufio/modules/activity becomes stufio.modules.activity
+                parent2 = path_parts[-3]
+                parent1 = path_parts[-2]
+                import_path = f"{parent2}.{parent1}.{module_name}"
+            else:
+                # Fallback to the current structure if we can't determine parent packages
+                import_path = f"stufio.modules.{module_name}"
+                
+            logger.debug(f"Importing module from path: {import_path}")
+            
+            # Import the module using the dynamically generated path
+            module = importlib.import_module(import_path)
 
             # Get module version
             version = getattr(module, "__version__", "0.0.0")
@@ -86,7 +110,7 @@ class ModuleRegistry:
 
             # Ensure migrations path exists - create if needed
             if discover_migrations:
-                # Discover migrations for this module (now safe since directory exists)
+                # Discover migrations for this module
                 migration_manager.discover_module_migrations(module_path, module_name, version)
 
             # Look for ModuleInterface implementation
