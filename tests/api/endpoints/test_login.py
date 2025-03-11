@@ -1,8 +1,9 @@
 from typing import Dict
 
 from fastapi.testclient import TestClient
+from stufio.core.config import get_settings
 
-from app.config import settings
+settings = get_settings()
 
 
 def test_get_access_token(client: TestClient) -> None:

@@ -6,13 +6,14 @@ import pytest_asyncio
 from fastapi.testclient import TestClient
 from motor.core import AgnosticDatabase
 
-from app.config import settings
+from stufio.core.config import get_settings
 from stufio.db.init_db import init_db
 from stufio.db.mongo import MongoDatabase, _MongoClientSingleton
 from stufio.tests.utils.user import authentication_token_from_email
 from stufio.tests.utils.utils import get_superuser_token_headers
 
 TEST_DATABASE = "test"
+settings = get_settings()
 settings.MONGO_DATABASE = TEST_DATABASE
 
 

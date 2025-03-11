@@ -5,10 +5,12 @@ from motor.core import AgnosticDatabase
 import pytest
 
 from stufio import crud
-from app.config import settings
+from stufio.core.config import get_settings
 from stufio.schemas.user import UserCreate
 from stufio.tests.utils.utils import random_email, random_lower_string
 
+
+settings = get_settings()
 
 @pytest.mark.asyncio
 async def test_get_users_superuser_me(client: TestClient, superuser_token_headers: Dict[str, str]) -> None:

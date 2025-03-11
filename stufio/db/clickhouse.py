@@ -1,6 +1,5 @@
 from typing import Optional
 from stufio.core.config import get_settings
-from app.__version__ import __version__
 
 import clickhouse_connect
 from clickhouse_connect.driver.asyncclient import AsyncClient
@@ -38,7 +37,7 @@ class _ClickhouseClientSingleton:
                 cls._instance.clickhouse_client = (
                     await clickhouse_connect.get_async_client(
                         dsn=settings.CLICKHOUSE_DSN,
-                        client_name=f"stufio.fastapi.{__version__}",
+                        client_name=f"stufio.fastapi",
                     )
                 )
                 # Verify connection works

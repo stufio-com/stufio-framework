@@ -4,11 +4,12 @@ from fastapi.testclient import TestClient
 from motor.core import AgnosticDatabase
 
 from stufio import crud
-from app.config import settings
+from stufio.core.config import get_settings
 from stufio.models.user import User
 from stufio.schemas.user import UserCreate, UserUpdate
 from stufio.tests.utils.utils import random_email, random_lower_string
 
+settings = get_settings()
 
 def user_authentication_headers(*, client: TestClient, email: str, password: str) -> Dict[str, str]:
     data = {"username": email, "password": password}
