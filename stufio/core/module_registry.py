@@ -35,20 +35,24 @@ class ModuleRegistry:
         try:
             # Look for installed packages that start with stufio.modules.
             logger.info("Discovering modules from installed packages...")
-            
+
             module_prefix = "stufio.modules."
             for dist in pkg_resources.working_set:
                 # Check both top-level packages and namespace packages
-                if dist.key.startswith("stufio-"):
+                if dist.key.startswith("stufio-modules-") or dist.key.startswith("stufio.modules."):
                     # Convert package name from stufio-modules-name to name
-                    module_name = dist.key.replace("stufio-", "").replace("-", "_")
+                    module_name = (
+                        dist.key.replace("stufio-modules-", "")
+                        .replace("stufio.modules.", "")
+                        .replace("-", "_")
+                    )
                     logger.debug(f"Found module package: {dist.key} -> {module_name}")
-                    
+
                     # Try to import the module to make sure it exists
                     try:
                         module_path = f"{module_prefix}{module_name}"
                         module = importlib.import_module(module_path)
-                        
+
                         if hasattr(module, "__file__"):
                             module_dir = os.path.dirname(module.__file__)
                             discovered_modules.append(module_name)
@@ -63,12 +67,12 @@ class ModuleRegistry:
             try:
                 # Try to import stufio.modules to check for direct submodules
                 import stufio.modules
-                
+
                 if hasattr(stufio.modules, "__path__"):
                     # Find local modules in the filesystem
                     modules_dir = getattr(settings, "STUFIO_MODULES_DIR", 
                                        os.path.join(os.path.dirname(__file__), "..", "modules"))
-                    
+
                     if os.path.exists(modules_dir):
                         logger.info(f"Looking for local modules in {modules_dir}")
                         for item in os.listdir(modules_dir):
@@ -76,7 +80,7 @@ class ModuleRegistry:
                             if (os.path.isdir(module_path) and 
                                 os.path.exists(os.path.join(module_path, "__init__.py")) and
                                 item != "__pycache__"):
-                                
+
                                 # Try to import to verify it works
                                 try:
                                     module = importlib.import_module(f"stufio.modules.{item}")
@@ -88,11 +92,11 @@ class ModuleRegistry:
                                     logger.warning(f"Could not import local module: stufio.modules.{item}")
             except ImportError:
                 logger.warning("Could not import stufio.modules package")
-                
+
         except Exception as e:
             logger.error(f"Error discovering modules: {str(e)}")
             traceback.print_exc()
-            
+
         # CHECK FOR LOCAL MODULES
         module_dirs = getattr(settings, "MODULES_DIR", [])
         for modules_dir in module_dirs if isinstance(module_dirs, list) else []:
@@ -116,17 +120,20 @@ class ModuleRegistry:
         # Add user-specified modules from settings if any
         user_modules = getattr(settings, "ADDITIONAL_MODULES", [])
         if user_modules and isinstance(user_modules, list):
-            for module_name in user_modules:
+            for full_module_name in user_modules:
+                module_name = full_module_name.split(".")[-1]
                 if module_name not in discovered_modules:
                     try:
                         # Try to import the module to verify it exists
-                        module = importlib.import_module(f"stufio.modules.{module_name}")
+                        module = importlib.import_module(full_module_name)
                         if hasattr(module, "__file__"):
                             module_dir = os.path.dirname(module.__file__)
                             discovered_modules.append(module_name)
                             self.module_paths[module_name] = module_dir
                     except ImportError:
-                        logger.error(f"Could not import additional module: stufio.modules.{module_name}")
+                        logger.error(
+                            f"Could not import additional module: {full_module_name}"
+                        )
 
         if discovered_modules:
             logger.info(f"Discovered modules: {', '.join(discovered_modules)}")
@@ -144,13 +151,13 @@ class ModuleRegistry:
             if module_name not in self.module_paths:
                 logger.error(f"Module path for {module_name} not found. Did you run discover_modules first?")
                 return None
-                
+
             module_path = self.module_paths[module_name]
-            
+
             # Determine the import path dynamically based on directory structure
             # Split the path into parts and get the last 3 components (parent, parent, module_name)
             path_parts = os.path.normpath(module_path).split(os.sep)
-            
+
             # Build import path based on actual directory structure
             if len(path_parts) >= 3:
                 # Use the last 3 parts of the path to create the import path
@@ -161,9 +168,9 @@ class ModuleRegistry:
             else:
                 # Fallback to the current structure if we can't determine parent packages
                 import_path = f"stufio.modules.{module_name}"
-                
+
             logger.debug(f"Importing module from path: {import_path}")
-            
+
             # Import the module using the dynamically generated path
             module = importlib.import_module(import_path)
 
@@ -203,19 +210,6 @@ class ModuleRegistry:
             traceback.print_exc()
             return None
 
-    def register_all_modules(self, app: FastAPI) -> None:
-        """
-        Register all modules with the FastAPI app.
-        Note: This only registers routes, NOT middleware.
-        """
-        for module_name, module in self.modules.items():
-            try:
-                # Only register routes, middleware should be added separately
-                module.register_routes(app)
-                logger.info(f"Registered module: {module_name}")
-            except Exception as e:
-                logger.error(f"Failed to register module {module_name}: {e}")
-
     def get_all_models(self) -> List[Any]:
         """Get all database models from all registered modules."""
         all_models = []
@@ -241,11 +235,16 @@ class ModuleRegistry:
                 logger.error(f"Failed to get middlewares from module {module_name}: {e}")
         return middlewares
 
-    def register_module_routes(self, app: FastAPI) -> None:
+    def register_all_modules_routes(self, app: FastAPI) -> None:
         """Register routes from all modules."""
+
+        # Register stufio core routes
+        from stufio.api.endpoints import api_router
+        app.include_router(api_router, prefix=self.router_prefix)
+
         for module_name, module in self.modules.items():
             try:
-                module.register_routes(app)
+                module.register_routes(app, router_prefix=self.router_prefix)
                 logger.info(f"Registered routes for module: {module_name}")
             except Exception as e:
                 logger.error(f"Failed to register routes for module {module_name}: {e}")
@@ -254,7 +253,7 @@ class ModuleRegistry:
 class ModuleInterface:
     """Interface that all modules must implement for registration."""
 
-    def register_routes(self, app: FastAPI) -> None:
+    def register_routes(self, app: FastAPI, router_prefix: str = None) -> None:
         """Register routes with the FastAPI application."""
         pass
 

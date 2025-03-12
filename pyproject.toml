@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.urls]
-repository = "https://github.com/stufio-com/stufio"
+repository = "https://github.com/stufio-com/stufio-framework"
 
 [tool.setuptools]
 package-dir = {"stufio" = "stufio"}
