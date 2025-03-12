@@ -1,4 +1,4 @@
-from typing import Generator, Optional
+from typing import AsyncGenerator, Generator, Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt
@@ -14,9 +14,9 @@ settings = get_settings()
 reusable_oauth2 = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/login/oauth")
 reusable_oauth2_optional = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/login/oauth", auto_error=False)
 
-def get_clickhouse() -> Generator:
+async def get_clickhouse() -> AsyncGenerator:
     try:
-        clickhouse = ClickhouseDatabase()
+        clickhouse = await ClickhouseDatabase()
         yield clickhouse
     finally:
         pass
