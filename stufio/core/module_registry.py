@@ -12,7 +12,6 @@ from stufio.core.config import get_settings
 from stufio.core.migrations.manager import migration_manager
 import traceback
 
-settings = get_settings()
 logger = logging.getLogger(__name__)
 
 class ModuleRegistry:
@@ -21,6 +20,7 @@ class ModuleRegistry:
     def __init__(self):
         self.modules: Dict[str, "ModuleInterface"] = {}
         self.module_paths: Dict[str, str] = {}  # Store module paths by name
+        settings = get_settings()
         self.router_prefix = getattr(settings, "API_V1_STR", "/api/v1")
 
     def discover_modules(self) -> List[str]:
@@ -31,6 +31,7 @@ class ModuleRegistry:
         """
         self.module_paths = {}  # Reset module paths
         discovered_modules = []
+        settings = get_settings()
 
         try:
             # Look for installed packages that start with stufio.modules.
@@ -99,6 +100,8 @@ class ModuleRegistry:
 
         # CHECK FOR LOCAL MODULES
         module_dirs = getattr(settings, "MODULES_DIR", [])
+        if module_dirs and isinstance(module_dirs, str):
+            module_dirs = [module_dirs]
         for modules_dir in module_dirs if isinstance(module_dirs, list) else []:
             logger.debug(f"Discovering modules in folder: {modules_dir}")
 
