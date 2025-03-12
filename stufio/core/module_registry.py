@@ -2,6 +2,8 @@ import importlib
 import inspect
 import logging
 import os
+import sys
+import pkg_resources
 from typing import Dict, List, Optional, Any
 from fastapi import FastAPI
 
@@ -23,30 +25,77 @@ class ModuleRegistry:
 
     def discover_modules(self) -> List[str]:
         """
-        Discover available modules in the modules directory.
+        Discover available modules by checking installed packages 
+        that start with "stufio.modules.".
         Returns a list of module names.
         """
-        module_dirs = []
         self.module_paths = {}  # Reset module paths
-
-        # Use framework's default module dir
-        stufio_modules_dir = getattr(settings, "STUFIO_MODULES_DIR", 
-                                   os.path.join(os.path.dirname(__file__), "..", "modules"))
-        module_dirs.append(stufio_modules_dir)
-
-        # Add user-specified module directories
-        user_modules_dir = getattr(settings, "MODULES_DIR", None)
-        if user_modules_dir:
-            if isinstance(user_modules_dir, list):
-                module_dirs.extend(user_modules_dir)
-            else:
-                module_dirs.append(user_modules_dir)
-
-        logger.info(f"Discovering modules in directories: {', '.join(module_dirs)}")
-
         discovered_modules = []
 
-        for modules_dir in module_dirs:
+        try:
+            # Look for installed packages that start with stufio.modules.
+            logger.info("Discovering modules from installed packages...")
+            
+            module_prefix = "stufio.modules."
+            for dist in pkg_resources.working_set:
+                # Check both top-level packages and namespace packages
+                if dist.key.startswith("stufio-"):
+                    # Convert package name from stufio-modules-name to name
+                    module_name = dist.key.replace("stufio-", "").replace("-", "_")
+                    logger.debug(f"Found module package: {dist.key} -> {module_name}")
+                    
+                    # Try to import the module to make sure it exists
+                    try:
+                        module_path = f"{module_prefix}{module_name}"
+                        module = importlib.import_module(module_path)
+                        
+                        if hasattr(module, "__file__"):
+                            module_dir = os.path.dirname(module.__file__)
+                            discovered_modules.append(module_name)
+                            self.module_paths[module_name] = module_dir
+                            logger.debug(f"Successfully imported module {module_name} from {module_dir}")
+                        else:
+                            logger.warning(f"Module {module_name} has no __file__ attribute")
+                    except ImportError as e:
+                        logger.warning(f"Could not import {module_path}: {e}")
+
+            # Also try direct imports of modules under stufio.modules
+            try:
+                # Try to import stufio.modules to check for direct submodules
+                import stufio.modules
+                
+                if hasattr(stufio.modules, "__path__"):
+                    # Find local modules in the filesystem
+                    modules_dir = getattr(settings, "STUFIO_MODULES_DIR", 
+                                       os.path.join(os.path.dirname(__file__), "..", "modules"))
+                    
+                    if os.path.exists(modules_dir):
+                        logger.info(f"Looking for local modules in {modules_dir}")
+                        for item in os.listdir(modules_dir):
+                            module_path = os.path.join(modules_dir, item)
+                            if (os.path.isdir(module_path) and 
+                                os.path.exists(os.path.join(module_path, "__init__.py")) and
+                                item != "__pycache__"):
+                                
+                                # Try to import to verify it works
+                                try:
+                                    module = importlib.import_module(f"stufio.modules.{item}")
+                                    if item not in discovered_modules:
+                                        discovered_modules.append(item)
+                                        self.module_paths[item] = module_path
+                                        logger.debug(f"Found local module: {item} at {module_path}")
+                                except ImportError:
+                                    logger.warning(f"Could not import local module: stufio.modules.{item}")
+            except ImportError:
+                logger.warning("Could not import stufio.modules package")
+                
+        except Exception as e:
+            logger.error(f"Error discovering modules: {str(e)}")
+            traceback.print_exc()
+            
+        # CHECK FOR LOCAL MODULES
+        module_dirs = getattr(settings, "MODULES_DIR", [])
+        for modules_dir in module_dirs if isinstance(module_dirs, list) else []:
             logger.debug(f"Discovering modules in folder: {modules_dir}")
 
             # Ensure modules directory exists
@@ -63,6 +112,21 @@ class ModuleRegistry:
                     discovered_modules.append(item)
                     # Store module path for later use
                     self.module_paths[item] = module_path
+
+        # Add user-specified modules from settings if any
+        user_modules = getattr(settings, "ADDITIONAL_MODULES", [])
+        if user_modules and isinstance(user_modules, list):
+            for module_name in user_modules:
+                if module_name not in discovered_modules:
+                    try:
+                        # Try to import the module to verify it exists
+                        module = importlib.import_module(f"stufio.modules.{module_name}")
+                        if hasattr(module, "__file__"):
+                            module_dir = os.path.dirname(module.__file__)
+                            discovered_modules.append(module_name)
+                            self.module_paths[module_name] = module_dir
+                    except ImportError:
+                        logger.error(f"Could not import additional module: stufio.modules.{module_name}")
 
         if discovered_modules:
             logger.info(f"Discovered modules: {', '.join(discovered_modules)}")

@@ -90,14 +90,14 @@ class MigrationManager:
         if module_import_path is None:
             # Determine the module's import path using the same logic as ModuleRegistry
             path_parts = os.path.normpath(module_path).split(os.sep)
-            
+
             if len(path_parts) >= 3:
                 parent2 = path_parts[-3]
                 parent1 = path_parts[-2]
                 module_import_path = f"{parent2}.{parent1}.{module_name}"
             else:
                 module_import_path = f"stufio.modules.{module_name}"
-            
+
         logger.debug(f"Using module import path: {module_import_path} for migrations")
 
         # For modules, look for date-based version directories like v20250308
@@ -123,10 +123,12 @@ class MigrationManager:
                     migrations_path=version_dir_path,
                     module_name=module_name,
                     version=version,
-                    import_path_generator=lambda rel_path: f"modules.{module_name}.migrations.{version_dir}.{os.path.splitext(os.path.basename(rel_path))[0]}"
+                    import_path_generator=lambda rel_path: f"{module_import_path}.migrations.{version_dir}.{os.path.splitext(os.path.basename(rel_path))[0]}",
                 )
         except Exception as e:
-            logger.error(f"Error discovering migrations for module {module_name}: {str(e)}")
+            logger.error(
+                f"Error discovering migrations for module {module_name}: {str(e)}"
+            )
 
     def _discover_migrations(self, migrations_path: str, module_name: str, version: str, 
                            import_path_generator: callable) -> None:
