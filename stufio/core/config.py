@@ -1,13 +1,12 @@
 import os
 import secrets
-from typing import Any, Dict, List, Optional, Union
-
-from pydantic import AnyHttpUrl, ConfigDict, EmailStr, HttpUrl, field_validator
+from typing import Any, Dict, List, Optional, Union, ClassVar, Type
+from pydantic import AnyHttpUrl, ConfigDict, EmailStr, HttpUrl, field_validator, create_model
 from pydantic_core.core_schema import ValidationInfo
 from pydantic_settings import BaseSettings
+from .settings import BaseStufioSettings, ModuleSettings
 
-
-class StufioSettings(BaseSettings):
+class StufioSettings(BaseStufioSettings):
     APP_NAME: str = "app"
     API_V1_STR: str = "/api/v1"
     API_ADMIN_STR: str = "/admin"
@@ -98,22 +97,9 @@ class StufioSettings(BaseSettings):
         )
     )
 
-    # Security and Rate Limiting Settings
-    RATE_LIMIT_IP_MAX_REQUESTS: int = 100
-    RATE_LIMIT_IP_WINDOW_SECONDS: int = 60
-
-    RATE_LIMIT_USER_MAX_REQUESTS: int = 300
-    RATE_LIMIT_USER_WINDOW_SECONDS: int = 60
-
-    SECURITY_MAX_UNIQUE_IPS_PER_DAY: int = 5
-
-    @classmethod
-    def get_settings(cls):
-        """Get the active settings instance"""
-        return _active_settings or StufioSettings()
-
-    # Allow extra attributes in this model
-    model_config = ConfigDict(extra="allow")
+    # Redis settings
+    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_PREFIX: str = "stufio:"
 
 
 # Default settings instance

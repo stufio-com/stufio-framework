@@ -177,6 +177,14 @@ class ModuleRegistry:
             # Import the module using the dynamically generated path
             module = importlib.import_module(import_path)
 
+            # Import module's config if it exists
+            try:
+                importlib.import_module(f"{import_path}.config")
+            except ImportError:
+                logger.debug(f"No config module found for {module_name}")
+            except Exception as e:
+                logger.warning(f"Error importing config for {module_name}: {e}")
+
             # Get module version
             version = getattr(module, "__version__", "0.0.0")
             if hasattr(module, "__version__") and isinstance(module.__version__, str):
