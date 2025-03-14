@@ -17,6 +17,14 @@ from stufio.schemas.token import (
     MagicTokenPayload,
     WebToken,
 )
-from stufio.schemas.user import User, UserCreate, UserInDB, UserUpdate, UserLogin
+from stufio.schemas.user import (
+    User,
+    UserCreate,
+    UserCreatePublic,
+    UserInDB,
+    UserUpdate,
+    UserLogin,
+    UserUpdatePassword,
+)
 from stufio.schemas.emails import EmailContent, EmailValidation
 from stufio.schemas.totp import NewTOTP, EnableTOTP

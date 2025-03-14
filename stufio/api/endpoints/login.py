@@ -488,13 +488,12 @@ async def recover_password(
 async def reset_password(
     *,
     db: AgnosticDatabase = Depends(deps.get_db),
-    claim: str = Body(...),
-    new_password: str = Body(...),
+    data_in: schemas.UserUpdatePassword,
 ) -> Any:
     """
     Reset password
     """
-    claim_in = deps.get_magic_token(token=claim)
+    claim_in = deps.get_magic_token(token=data_in.claim)
     # Get the user
     user = await crud.user.get(db, id=ObjectId(claim_in.sub))
     # Test the claims
@@ -504,7 +503,7 @@ async def reset_password(
         )
 
     # Update the password
-    hashed_password = security.get_password_hash(new_password)
+    hashed_password = security.get_password_hash(data_in.new_password)
     user.hashed_password = hashed_password
     await crud.user.update(db=db, db_obj=user, obj_in={"hashed_password": hashed_password})
 

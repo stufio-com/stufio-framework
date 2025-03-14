@@ -17,11 +17,16 @@ class UserBase(BaseModel):
     full_name: str = ""
 
 
-# Properties to receive via API on creation
+# Properties to receive via admin API on creation
 class UserCreate(UserBase):
     email: EmailStr
     password: Optional[Annotated[str, StringConstraints(min_length=8, max_length=64)]] = None
 
+# Properties to receive via API on creation
+class UserCreatePublic(BaseModel):
+    email: EmailStr
+    password: str
+    full_name: str = ""
 
 # Properties to receive via API on update
 class UserUpdate(UserBase):
@@ -63,3 +68,8 @@ class UserInDB(UserInDBBase):
     totp_secret: Optional[str] = None
     totp_counter: Optional[int] = None
     email_tokens_cnt: Optional[int] = None
+
+
+class UserUpdatePassword(BaseModel):
+    claim: str
+    new_password: str
