@@ -277,7 +277,10 @@ class MigrationManager:
                                 {"$set": migration_record.dict()}
                             )
                         else:
-                            logger.info(f"Successfully executed migration {migration_key}")
+                            if migration_record.success:
+                                logger.info(f"Successfully executed migration {migration_key}")
+                            else:
+                                logger.error(f"Failed to execute migration {migration_key}: {migration_record.error}")
                             # Save migration record
                             await mongodb.migrations.insert_one(migration_record.dict())
 

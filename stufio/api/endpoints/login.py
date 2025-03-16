@@ -81,7 +81,7 @@ async def validate_magic_link(
     """
     claim_in = deps.get_magic_token(token=obj_in.claim)
     # Get the user
-    user = await crud.user.get(db, id=magic_in.sub)
+    user = await crud.user.get(db, magic_in.sub)
     # Test the claims
 
     if (
@@ -193,7 +193,7 @@ async def validate_email(
             )
 
         # Get the user
-        user = await crud.user.get(db, id=ObjectId(claim_in.sub))
+        user = await crud.user.get(db, claim_in.sub)
         if not user or not crud.user.is_active(user):
             raise HTTPException(
                 status_code=400,
@@ -495,7 +495,7 @@ async def reset_password(
     """
     claim_in = deps.get_magic_token(token=data_in.claim)
     # Get the user
-    user = await crud.user.get(db, id=ObjectId(claim_in.sub))
+    user = await crud.user.get(db, claim_in.sub)
     # Test the claims
     if not user or not crud.user.is_active(user):
         raise HTTPException(

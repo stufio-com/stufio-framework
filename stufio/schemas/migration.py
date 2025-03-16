@@ -29,7 +29,7 @@ class MigrationRead(MigrationBase):
     metadata: Dict[str, Any] = {}
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class MigrationFilter(BaseModel):
     module: Optional[str] = None

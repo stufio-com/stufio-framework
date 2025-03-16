@@ -54,7 +54,7 @@ class MigrationScript(ABC, Generic[DB]):
             error = str(e)
             success = False
             logger.error(f"Migration '{self.name}' failed: {error}")
-            raise
+            raise e
         finally:
             end_time = time.time()
             execution_time_ms = (end_time - start_time) * 1000

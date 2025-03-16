@@ -22,7 +22,8 @@ router = APIRouter()
 async def read_all_users(
     *,
     db: AgnosticDatabase = Depends(deps.get_db),
-    page: int = 0,
+    skip: int = 0,
+    limit: int = 100,
     current_user: models.User = Depends(deps.get_current_active_superuser),
 ) -> Any:
     """
@@ -82,7 +83,7 @@ async def update_user(
     """
     Update user (moderator function).
     """
-    user = await crud.user.get(user_in.id)
+    user = await crud.user.get(db, user_in.id)
     if not user:
         raise HTTPException(
             status_code=404,
@@ -102,5 +103,5 @@ async def read_user(
     """
     Get current user(moderator function).
     """
-    user = await crud.user.get(user_id)
+    user = await crud.user.get(db, user_id)
     return user

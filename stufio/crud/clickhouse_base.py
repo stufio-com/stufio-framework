@@ -4,7 +4,9 @@ from pydantic import BaseModel
 from clickhouse_connect.driver.asyncclient import AsyncClient
 
 from stufio.db.clickhouse_base import ClickhouseBase
+from stufio.core.config import get_settings
 
+settings = get_settings()
 ModelType = TypeVar("ModelType", bound=ClickhouseBase)
 CreateSchemaType = TypeVar("CreateSchemaType", bound=BaseModel)
 UpdateSchemaType = TypeVar("UpdateSchemaType", bound=BaseModel)
@@ -38,15 +40,46 @@ class CRUDClickhouseBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType])
         rows = result.named_results()
         return self.model(**rows[0]) if rows else None
 
+    async def get_by_field(
+        self, db: AsyncClient, field: str, value: Any
+    ) -> Optional[ModelType]:
+        """
+        Retrieve an object by a specific field.
+        """
+        result = await db.query(
+            f"""
+            SELECT *
+            FROM {self.get_table_name()}
+            WHERE {field} = {{value}}
+            LIMIT 1
+            """,
+            parameters={"value": value},
+        )
+        rows = result.named_results()
+        return self.model(**rows[0]) if rows else None
+
     async def get_multi(
         self,
         db: AsyncClient,
         *,
-        skip: int = 0,
-        limit: int = 100,
-        filters: Dict[str, Any] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        sort: Optional[Any] = None,
+        skip: Optional[int] = 0,
+        limit: Optional[int] = settings.MULTI_MAX,
     ) -> List[ModelType]:
-        """Get multiple records with pagination and filtering"""
+        """
+        Retrieve multiple objects by multiple fields or by a custom query expression.
+        
+        Args:
+            db: Database connection
+            fields: Dictionary of field-value pairs for filtering (legacy approach)
+            sort: Sort criteria
+            skip: Number of records to skip
+            limit: Maximum number of records to return
+            
+        Returns:
+            List of matching objects
+        """
         query = f"""
             SELECT *
             FROM {self.get_table_name()}
@@ -59,9 +92,19 @@ class CRUDClickhouseBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType])
                 query += f" AND {key} = {{{key}}}"
                 params[key] = value
 
+        if sort:
+            if isinstance(sort, str):
+                query += f" ORDER BY {sort}"
+            elif isinstance(sort, list):
+                query += f" ORDER BY {', '.join(sort)}"
+            else:
+                raise ValueError("Sort parameter must be a string or a list of strings")
+
         query += f" LIMIT {limit} OFFSET {skip}"
+
         result = await db.query(query, parameters=params)
         return [self.model(**row) for row in result.named_results()]
+
 
     async def create(self, db: AsyncClient, *, obj_in: CreateSchemaType) -> ModelType:
         """Create a new record"""
