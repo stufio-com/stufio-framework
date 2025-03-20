@@ -86,8 +86,20 @@ class CRUDMongoBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
     async def get_by_field(self, db: AgnosticDatabase, field: str, value: Any) -> Optional[ModelType]:
         """
         Retrieve an object by a specific field.
+        
+        Args:
+            db: Database connection
+            field: Name of the field to search by
+            value: Value to search for
+            
+        Returns:
+            The object if found, None otherwise
         """
-        return await self.engine.find_one(self.model, field == value)
+        # Get the actual field attribute from the model
+        model_field = getattr(self.model, field)
+        
+        # Create a proper ODMantic query expression
+        return await self.engine.find_one(self.model, model_field == value)
 
     async def get_multi(
         self,

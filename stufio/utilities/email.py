@@ -83,12 +83,13 @@ def send_test_email(email_to: str) -> None:
     )
 
 
-def send_magic_login_email(email_to: str, token: str) -> None:
+def send_magic_login_email(email_to: str, token: str, server_host: str = None) -> None:
     project_name = settings.PROJECT_NAME
     subject = f"Your {project_name} magic login"
     with open(Path(settings.EMAIL_TEMPLATES_DIR) / "magic_login.html") as f:
         template_str = f.read()
-    server_host = settings.SERVER_HOST
+    if not server_host:
+        server_host = settings.SERVER_HOST
     link = f"{server_host}?magic={token}"
     send_email(
         email_to=email_to,

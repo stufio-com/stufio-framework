@@ -1,10 +1,12 @@
 from typing import Any, Union, Annotated
+from venv import logger
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Header, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from motor.core import AgnosticDatabase
 from odmantic import ObjectId
 
+from pydantic_core import Url
 from stufio import crud, models, schemas
 from stufio.api import deps
 from stufio.core import security
@@ -19,7 +21,6 @@ from stufio.core.config import get_settings
 settings = get_settings()
 
 router = APIRouter()
-
 
 """
 https://github.com/OWASP/CheatSheetSeries/blob/master/cheatsheets/Authentication_Cheat_Sheet.md
@@ -40,7 +41,7 @@ See `security.py` for other requirements.
 
 @router.post("/magic/{email}", response_model=schemas.WebToken)
 async def login_with_magic_link(
-    *, db: AgnosticDatabase = Depends(deps.get_db), email: str
+    *, db: AgnosticDatabase = Depends(deps.get_db), email: str, request: Request
 ) -> Any:
     """
     First step of a 'magic link' login. Check if the user exists and generate a magic link. Generates two short-duration
@@ -60,13 +61,21 @@ async def login_with_magic_link(
     tokens = security.create_magic_tokens(subject=user.id)
     if settings.EMAILS_ENABLED and user.email:
         # Send email with user.email as subject
-        send_magic_login_email(email_to=user.email, token=tokens[0])
+        server_host = None
+        try:
+            origin = request.headers.get("origin")
+            if origin:
+                origin = Url(origin.rstrip("/"))
+                if (
+                    settings.BACKEND_CORS_ORIGINS
+                    and origin in settings.BACKEND_CORS_ORIGINS
+                ):
+                    server_host = str(origin)
+        except Exception as e:
+            pass
+        send_magic_login_email(email_to=user.email, token=tokens[0], server_host=server_host)
+
     return {"claim": tokens[1]}
-
-
-# @router.get("/test", response_model=schemas.Msg)
-# async def test(*, request: Request) -> Any:
-#     return {"msg": "111: " + request.headers.get("User-Agent")}
 
 
 @router.post("/claim", response_model=schemas.Token)
@@ -74,14 +83,22 @@ async def validate_magic_link(
     *,
     db: AgnosticDatabase = Depends(deps.get_db),
     obj_in: schemas.WebToken,
-    magic_in: bool = Depends(deps.get_magic_token),
+    magic_in: schemas.MagicTokenPayload = Depends(deps.get_magic_token),
 ) -> Any:
     """
     Second step of a 'magic link' login.
     """
     claim_in = deps.get_magic_token(token=obj_in.claim)
     # Get the user
-    user = await crud.user.get(db, magic_in.sub)
+    if (
+        not claim_in.sub
+        or not claim_in.fingerprint
+        or not magic_in.fingerprint
+        or claim_in.fingerprint != magic_in.fingerprint
+    ):
+        raise HTTPException(status_code=400, detail="Login failed; invalid claim.")
+
+    user = await crud.user.get(db, claim_in.sub)
     # Test the claims
 
     if (
@@ -105,7 +122,7 @@ async def validate_magic_link(
         force_totp = False
         refresh_token = security.create_refresh_token(subject=user.id)
         await crud.token.create(db=db, obj_in=refresh_token, user_obj=user)
-        
+
     return {
         "access_token": security.create_access_token(
             subject=user.id, force_totp=force_totp

@@ -17,7 +17,6 @@ settings = get_settings()
 
 router = APIRouter()
 
-
 @router.post("/", response_model=schemas.User)
 async def create_user_profile(
     *,

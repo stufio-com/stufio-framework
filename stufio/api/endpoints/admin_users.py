@@ -1,11 +1,9 @@
 from typing import Any, List
-
-from fastapi import APIRouter, Body, Depends, HTTPException
-from fastapi.encoders import jsonable_encoder
-from pydantic.networks import EmailStr
+from fastapi import Depends, HTTPException
+from fastapi.routing import APIRouter
 from motor.core import AgnosticDatabase
 
-from stufio import crud, models, schemas
+from stufio import crud, schemas
 from stufio.api import deps
 from stufio.core.config import get_settings
 from stufio.core import security
@@ -17,19 +15,17 @@ settings = get_settings()
 
 router = APIRouter()
 
-
 @router.get("/all", response_model=List[schemas.User])
 async def read_all_users(
     *,
     db: AgnosticDatabase = Depends(deps.get_db),
     skip: int = 0,
     limit: int = 100,
-    current_user: models.User = Depends(deps.get_current_active_superuser),
 ) -> Any:
     """
     Retrieve all current users.
     """
-    return await crud.user.get_multi(db=db, page=page)
+    return await crud.user.get_multi(db=db, skip=skip, limit=limit)
 
 
 @router.post("/toggle-state", response_model=schemas.Msg)
@@ -37,7 +33,6 @@ async def toggle_state(
     *,
     db: AgnosticDatabase = Depends(deps.get_db),
     user_in: schemas.UserUpdate,
-    current_user: models.User = Depends(deps.get_current_active_superuser),
 ) -> Any:
     """
     Toggle user state (moderator function)
@@ -56,7 +51,6 @@ async def create_user(
     *,
     db: AgnosticDatabase = Depends(deps.get_db),
     user_in: schemas.UserCreate,
-    current_user: models.User = Depends(deps.get_current_active_superuser),
 ) -> Any:
     """
     Create new user (moderator function).
@@ -78,7 +72,6 @@ async def update_user(
     *,
     db: AgnosticDatabase = Depends(deps.get_db),
     user_in: schemas.UserUpdate,
-    current_user: models.User = Depends(deps.get_current_active_superuser),
 ) -> Any:
     """
     Update user (moderator function).
@@ -98,7 +91,6 @@ async def read_user(
     user_id: str,
     *,
     db: AgnosticDatabase = Depends(deps.get_db),
-    current_user: models.User = Depends(deps.get_current_active_superuser),
 ) -> Any:
     """
     Get current user(moderator function).

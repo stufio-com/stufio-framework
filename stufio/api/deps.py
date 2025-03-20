@@ -1,5 +1,7 @@
+from operator import le
 from typing import AsyncGenerator, Generator, Optional
-from fastapi import Depends, HTTPException, status
+from venv import logger
+from fastapi import Depends, HTTPException, status, Header
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt
 from pydantic import ValidationError
@@ -84,7 +86,12 @@ async def get_totp_user(db: AgnosticDatabase = Depends(get_db), token: str = Dep
 
 def get_magic_token(token: str = Depends(reusable_oauth2)) -> schemas.MagicTokenPayload:
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGO])
+        if not token or len(token) < 10:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Could not validate credentials",
+            )
+        payload = jwt.decode(str(token), settings.SECRET_KEY, algorithms=[settings.JWT_ALGO])
         token_data = schemas.MagicTokenPayload(**payload)
     except (jwt.JWTError, ValidationError) as e:
         raise HTTPException(
@@ -151,3 +158,53 @@ async def get_active_websocket_user(*, db: AgnosticDatabase, token: str) -> mode
     if not crud.user.is_active(user):
         raise ValidationError("Inactive user")
     return user
+
+async def get_api_secret(
+    x_api_secret: str = Header(None, description="API secret for internal service authentication"),
+    x_api_client: str = Header(None, description="Client identifier for internal service"),
+) -> bool:
+    """
+    Validate internal API calls using API secret.
+    
+    This dependency should be used for endpoints that are only accessible
+    from trusted internal services like the admin panel.
+    
+    Args:
+        x_api_secret: The API secret provided in the X-API-Secret header
+        x_api_client: The client identifier provided in the X-API-Client header
+    
+    Returns:
+        True if validation passes
+        
+    Raises:
+        HTTPException: If validation fails with 403 Forbidden status
+    """
+    if not x_api_secret:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="API secret header missing",
+        )
+    
+    # Validate against the configured API secret
+    if x_api_secret != settings.API_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid API secret",
+        )
+    
+    # Only check client if validation is enabled
+    if settings.API_CLIENT_VALIDATION:
+        if not x_api_client:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="API client header missing",
+            )
+        
+        # Validate against the configured allowed clients
+        if x_api_client not in settings.API_INTERNAL_CLIENTS:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invalid API client",
+            )
+    
+    return True

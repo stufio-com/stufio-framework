@@ -2,7 +2,6 @@ import importlib
 import inspect
 import logging
 import os
-import sys
 import pkg_resources
 from typing import Dict, List, Optional, Any
 from fastapi import FastAPI
@@ -10,6 +9,7 @@ from fastapi import FastAPI
 # Remove the external app dependency
 from stufio.core.config import get_settings
 from stufio.core.migrations.manager import migration_manager
+from stufio.api.admin import admin_router, internal_router
 import traceback
 
 logger = logging.getLogger(__name__)
@@ -236,18 +236,32 @@ class ModuleRegistry:
         return all_models
 
     def get_all_middlewares(self) -> List[tuple]:
-        """Get all middlewares from all modules."""
+        """Get all framework and module middlewares."""
         middlewares = []
+
+        # First, add framework middlewares
+        try:
+            # Import framework middlewares
+            from stufio.middleware.framework import get_framework_middlewares
+            framework_middlewares = get_framework_middlewares()
+            middlewares.extend(framework_middlewares)
+            logger.info(f"Added {len(framework_middlewares)} framework middlewares")
+        except ImportError:
+            logger.debug("No framework middlewares found")
+
+        # Then, add module middlewares
         for module_name, module in self.modules.items():
             try:
                 module_middlewares = module.get_middlewares()
                 middlewares.extend(module_middlewares)
+                logger.info(f"Added {len(module_middlewares)} middlewares from module {module_name}")
             except Exception as e:
                 logger.error(f"Failed to get middlewares from module {module_name}: {e}")
+
         return middlewares
 
-    def register_all_modules_routes(self, app: FastAPI) -> None:
-        """Register routes from all modules."""
+    def register_all_modules(self, app: FastAPI) -> None:
+        """Register all modules."""
 
         # Register stufio core routes
         from stufio.api.endpoints import api_router
@@ -255,16 +269,25 @@ class ModuleRegistry:
 
         for module_name, module in self.modules.items():
             try:
-                module.register_routes(app, router_prefix=self.router_prefix)
+                module.register(app)
                 logger.info(f"Registered routes for module: {module_name}")
             except Exception as e:
                 logger.error(f"Failed to register routes for module {module_name}: {e}")
 
+        # Register admin routes
+        app.include_router(admin_router, prefix=get_settings().API_V1_STR)
+        # Register internal routes
+        app.include_router(internal_router, prefix=get_settings().API_V1_STR)
+
 
 class ModuleInterface:
     """Interface that all modules must implement for registration."""
+    
+    __version__ = "0.0.0"
+    # Change from double underscore to single underscore to avoid name mangling
+    _routes_prefix = get_settings().API_V1_STR
 
-    def register_routes(self, app: FastAPI, router_prefix: str = None) -> None:
+    def register_routes(self, app: FastAPI) -> None:
         """Register routes with the FastAPI application."""
         pass
 

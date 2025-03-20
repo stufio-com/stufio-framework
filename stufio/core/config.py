@@ -106,6 +106,23 @@ class StufioSettings(BaseStufioSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     REDIS_PREFIX: str = "stufio:"
 
+    # Add new API security settings
+    API_SECRET: str = secrets.token_urlsafe(32)
+    API_INTERNAL_CLIENTS: List[str] = ["stufio-admin", "stufio-cron"]
+    API_CLIENT_VALIDATION: bool = True
+    
+    # Add a setting for internal endpoints prefix
+    API_INTERNAL_STR: str = "/internal"
+    
+    # Validator to handle API_INTERNAL_CLIENTS as comma-separated string
+    @field_validator("API_INTERNAL_CLIENTS", mode="before")
+    def assemble_api_clients(cls, v: Union[str, List[str]]) -> List[str]:
+        if isinstance(v, str) and not v.startswith("["):
+            return [i.strip() for i in v.split(",")]
+        elif isinstance(v, list):
+            return v
+        return ["stufio-admin", "stufio-cron"]  # Default if invalid
+
 
 # Default settings instance
 settings = StufioSettings()

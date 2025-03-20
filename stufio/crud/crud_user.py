@@ -8,8 +8,8 @@ from stufio.schemas import UserCreate, UserInDB, UserUpdate, NewTOTP
 # ODM, Schema, Schema
 class CRUDUser(CRUDMongoBase[User, UserCreate, UserUpdate]):
     async def get_by_email(self, db: AgnosticDatabase, *, email: str) -> Optional[User]:
-        return await self.engine.find_one(User, User.email == email)
-
+        return await self.get_by_field(db, field="email", value=email)
+    
     async def create(self, db: AgnosticDatabase, *, obj_in: UserCreate) -> User:
         # TODO: Figure out what happens when you have a unique key like 'email'
         user = {
