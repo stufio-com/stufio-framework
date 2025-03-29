@@ -23,6 +23,10 @@ class ModuleRegistry:
         settings = get_settings()
         self.router_prefix = getattr(settings, "API_V1_STR", "/api/v1")
 
+    def discovered_modules(self) -> Dict[str,str]:
+        """Return the list of discovered modules with path."""
+        return self.module_paths
+
     def discover_modules(self) -> List[str]:
         """
         Discover available modules by checking installed packages 
@@ -178,12 +182,22 @@ class ModuleRegistry:
             module = importlib.import_module(import_path)
 
             # Import module's config if it exists
+            config = False
             try:
                 importlib.import_module(f"{import_path}.config")
+                config = True
             except ImportError:
                 logger.debug(f"No config module found for {module_name}")
             except Exception as e:
                 logger.warning(f"Error importing config for {module_name}: {e}")
+                
+            if config:
+                try:
+                    importlib.import_module(f"{import_path}.settings")
+                except ImportError:
+                    logger.debug(f"No settings module found for {module_name}")
+                except Exception as e:
+                    logger.warning(f"Error importing settings for {module_name}: {e}")
 
             # Get module version
             version = getattr(module, "__version__", "0.0.0")

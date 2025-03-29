@@ -1,10 +1,12 @@
 import os
 import secrets
 from typing import Any, Dict, List, Optional, Union, ClassVar, Type
+from celery.app.utils import Settings
 from pydantic import AnyHttpUrl, ConfigDict, EmailStr, HttpUrl, field_validator, create_model
 from pydantic_core.core_schema import ValidationInfo
 from pydantic_settings import BaseSettings
 from .settings import BaseStufioSettings, ModuleSettings
+from .setting_registry import SettingMetadata, GroupMetadata, SubgroupMetadata, SettingType, settings_registry
 
 class StufioSettings(BaseStufioSettings):
     APP_NAME: str = "app"
@@ -90,7 +92,7 @@ class StufioSettings(BaseStufioSettings):
     EMAIL_TEST_USER: EmailStr = "test@example.com"  # type: ignore
     FIRST_SUPERUSER: EmailStr
     FIRST_SUPERUSER_PASSWORD: str
-
+    
     USERS_OPEN_REGISTRATION: bool = True
 
     # MODULES SETTINGS
@@ -143,3 +145,49 @@ def configure_settings(settings_instance):
 def get_settings():
     """Get the active settings, possibly from cache"""
     return _active_settings
+
+
+# Register metadata for settings
+
+settings_registry.register_group(
+    GroupMetadata(id="general", label="General Settings", order=10)
+)
+settings_registry.register_group(
+    GroupMetadata(id="api", label="API Settings", order=50)
+)
+
+
+# settings_registry.register_subgroup(
+#     subgroup=SubgroupMetadata(id="endpoints", group_id="api", label="Endpoints", order=10)
+# )
+settings_registry.register_subgroup(
+    SubgroupMetadata(id="debugging", group_id="api", label="Debugging", order=200),
+)
+
+
+
+settings_registry.register_setting(
+    SettingMetadata(
+        key="API_DEBUG",
+        label="Enable Debug Mode",
+        description="Enable debug output in API responses",
+        group="api",
+        subgroup="debugging",
+        type=SettingType.BOOLEAN,
+        component="switch",
+        order=10
+    )
+)
+
+settings_registry.register_setting(
+    SettingMetadata(
+        key="API_PROFILE",
+        label="Enable Profiling",
+        description="Enable profiling of API requests",
+        group="api",
+        subgroup="debugging",
+        type=SettingType.BOOLEAN,
+        component="switch",
+        order=20
+    )
+)

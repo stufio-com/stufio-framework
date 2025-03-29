@@ -1,0 +1,38 @@
+digraph architecture {
+  rankdir=TB;
+  node [shape=box, style=rounded, fontsize=12];
+
+  Client [label="Client (Browser/Mobile)", shape=ellipse, style=filled, color=lightblue];
+
+  Traefik [label="Traefik Reverse Proxy\n(SSL, Routing, Load Balancing)", style=filled, color=yellowgreen];
+
+  NodeStorefront [label="Node.js Storefront\n(GraphQL/REST Client)", color=orange, style=filled];
+
+  NodeAdmin [label="Node.js Admin UI\n(REST Client)", color=orange, style=filled];
+
+  FastAPI [label="FastAPI Backend\nGraphQL + REST API", color=deepskyblue, style=filled];
+
+  MongoDB [label="MongoDB\nPersistent Data", style=filled, color=yellow];
+  Redis [label="Redis\nCaching Layer", style=filled, color=springgreen];
+  Kafka [label="Kafka Broker\nEvent Bus", style=filled, color=deeppink];
+  ClickHouse [label="ClickHouse DB\nAnalytics Data", style=filled, color=cyan];
+
+  Client -> Traefik [label="HTTPS"];
+
+  Traefik -> NodeStorefront [label="HTTPS"];
+  Traefik -> FastAPI [label="HTTPS"];
+
+  NodeStorefront -> FastAPI [label="GraphQL queries/mutations"];
+
+  NodeAdmin -> FastAPI [label="REST API calls"];
+
+  FastAPI -> MongoDB [label="CRUD operations"];
+  FastAPI -> Redis [label="Cache Read/Write"];
+
+  FastAPI -> Kafka [label="Publish events"];
+  Kafka -> ClickHouse [label="Event ingestion"];
+
+  Traefik -> NodeAdmin [label="HTTPS"];
+
+  {rank=same; MongoDB; Redis; Kafka; ClickHouse;}
+}
