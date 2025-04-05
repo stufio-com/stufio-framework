@@ -6,14 +6,14 @@ import redis
 import json
 from datetime import datetime
 
-from ..crud.mongo_base import CRUDMongoBase
+from ..crud.mongo_base import CRUDMongo
 from ..models.setting import Setting, SettingHistory
 from ..schemas.setting import SettingCreate, SettingUpdate
 from ..core.config import get_settings
 from ..core.setting_registry import settings_registry
 
 
-class CRUDSetting(CRUDMongoBase[Setting, SettingCreate, SettingUpdate]):
+class CRUDSetting(CRUDMongo[Setting, SettingCreate, SettingUpdate]):
     """CRUD operations for settings with Redis caching integration"""
 
     def __init__(self, model: Setting):
@@ -22,18 +22,16 @@ class CRUDSetting(CRUDMongoBase[Setting, SettingCreate, SettingUpdate]):
         self.redis = redis.from_url(settings.REDIS_URL)
         self.prefix = f"{settings.REDIS_PREFIX}settings:"
 
-    async def get_by_key(self, db: AgnosticDatabase, *, key: str) -> Optional[Setting]:
+    async def get_by_key(self, key: str) -> Optional[Setting]:
         """Get a setting by its key"""
-        return await self.get_by_field(db, "key", key)
+        return await self.get_by_field("key", key)
 
-    async def get_module_settings(self, db: AgnosticDatabase, *, module: str = "core") -> List[Setting]:
+    async def get_module_settings(self, module: str = "core") -> List[Setting]:
         """Get all settings for a module"""
-        return await self.get_by_field(db, "module", module)
+        return await self.get_by_field("module", module)
 
     async def create_or_update(
         self,
-        db: AgnosticDatabase,
-        *,
         key: str,
         value: Any,
         module: str = "core",
@@ -41,7 +39,7 @@ class CRUDSetting(CRUDMongoBase[Setting, SettingCreate, SettingUpdate]):
     ) -> Setting:
         """Create a new setting or update an existing one"""
         # Check if setting exists
-        existing = await self.get_by_key(db, key=key)
+        existing = await self.get_by_key(key=key)
 
         if existing:
             # Create history record
@@ -75,10 +73,10 @@ class CRUDSetting(CRUDMongoBase[Setting, SettingCreate, SettingUpdate]):
 
         return setting
 
-    async def delete(self, db: AgnosticDatabase, *, key: str) -> bool:
+    async def delete(self, key: str) -> bool:
         """Delete a setting (revert to default value)"""
         # Get the setting first
-        setting = await self.get_by_key(db, key=key)
+        setting = await self.get_by_key(key=key)
         if not setting:
             return False
 
@@ -108,7 +106,7 @@ class CRUDSetting(CRUDMongoBase[Setting, SettingCreate, SettingUpdate]):
         cache_key = f"{self.prefix}:merged"
         self.redis.delete(cache_key)
 
-    async def refresh_cache(self, db: AgnosticDatabase) -> None:
+    async def refresh_cache(self) -> None:
         """Refresh the entire settings cache"""
         # Get all modules with settings
         keys = self.redis.keys(f"{self.prefix}*")
@@ -116,19 +114,16 @@ class CRUDSetting(CRUDMongoBase[Setting, SettingCreate, SettingUpdate]):
             self.redis.delete(*keys)
 
         # Update merged settings
-        await self.get_merged_settings(db, force_refresh=True)
+        await self.get_merged_settings(force_refresh=True)
 
     async def get_merged_settings(
         self,
-        db: AgnosticDatabase,
-        *,
         force_refresh: bool = False
     ) -> Dict[str, Any]:
         """
         Get settings for a module, merging default values with DB overrides
         
         Args:
-            db: Database connection
             module: Module name
             force_refresh: Whether to bypass cache and force a refresh
             
@@ -159,7 +154,7 @@ class CRUDSetting(CRUDMongoBase[Setting, SettingCreate, SettingUpdate]):
                     default_settings[key] = setting.default_value
 
         # Get DB overrides
-        db_settings =await self.get_all(db, limit=None)
+        db_settings = await self.get_multi(limit=None)
         db_overrides = {setting.key: setting.value for setting in db_settings}
 
         # Merge settings (DB overrides take precedence)
@@ -208,8 +203,6 @@ class CRUDSetting(CRUDMongoBase[Setting, SettingCreate, SettingUpdate]):
 
     async def get_filtered_settings(
         self,
-        db: AgnosticDatabase,
-        *,
         keys: Optional[List[str]] = None,
         force_refresh: bool = False
     ) -> Dict[str, Any]:
@@ -217,7 +210,6 @@ class CRUDSetting(CRUDMongoBase[Setting, SettingCreate, SettingUpdate]):
         Get filtered settings for a module, optionally filtered by keys
         
         Args:
-            db: Database connection
             module: Module name
             keys: Optional list of keys to filter by
             force_refresh: Whether to bypass cache and force a refresh
@@ -226,7 +218,7 @@ class CRUDSetting(CRUDMongoBase[Setting, SettingCreate, SettingUpdate]):
             Dictionary of merged settings
         """
         # Get merged settings for the module
-        merged_settings = await self.get_merged_settings(db, force_refresh=force_refresh)
+        merged_settings = await self.get_merged_settings(force_refresh=force_refresh)
 
         # If keys are provided, filter the results
         if keys:

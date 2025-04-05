@@ -1,179 +1,145 @@
-from typing import Any, Dict, Generic, Optional, Type, TypeVar, Union, List
-
+from typing import Any, Dict, Generic, Optional, Type, TypeVar, Union, List, Callable
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
-from motor.core import AgnosticDatabase
-from odmantic import AIOEngine, ObjectId
-from odmantic.field import ODMFieldInfo  # Changed from PrimaryField
-
+from odmantic import AIOEngine, Model, ObjectId
 from stufio.db.mongo_base import MongoBase
-from stufio.db.mongo import get_engine
 from stufio.core.config import get_settings
+from .base import BaseCRUD
 
 settings = get_settings()
 ModelType = TypeVar("ModelType", bound=MongoBase)
 CreateSchemaType = TypeVar("CreateSchemaType", bound=BaseModel)
 UpdateSchemaType = TypeVar("UpdateSchemaType", bound=BaseModel)
 
+class CRUDMongo(BaseCRUD[ModelType, CreateSchemaType, UpdateSchemaType]):
+    """MongoDB CRUD operations using ODMantic AIOEngine"""
 
-class CRUDMongoBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
-    def __init__(self, model: Type[ModelType]):
-        """
-        CRUD object with default methods to Create, Read, Update, Delete (CRUD).
-        
-        Args:
-            model: The Odmantic model class
-        """
-        self.model = model
-        self.engine: AIOEngine = get_engine()
+    def __init__(self, model: Type[ModelType], engine_factory: Callable[[], AIOEngine] = None):
+        """Initialize with model class and optional engine factory"""
+        super().__init__(model)
+        # Store the factory, not the instance (lazy loading)
+        self._engine_factory = engine_factory
+        self._engine = None
 
-    async def get(self, db: AgnosticDatabase, id: ObjectId | str) -> Optional[ModelType]:
-        """
-        Get a single object by ID using the model's primary field.
-        
-        Args:
-            db: Database connection
-            id: The ID value (either ObjectId or string)
-            
-        Returns:
-            The object if found, None otherwise
-        """
-        
+    @property
+    def engine(self) -> AIOEngine:
+        """Get or create the engine instance"""
+        if self._engine is None:
+            if self._engine_factory is None:
+                # Default engine factory if none provided
+                from stufio.db.mongo import get_engine
+                self._engine_factory = get_engine
+            self._engine = self._engine_factory()
+        return self._engine
+
+    async def get(self, id: Union[ObjectId, str]) -> Optional[ModelType]:
+        """Get an object by ID"""
         primary_field_name = None
         for name, field in self.model.__odm_fields__.items():
-            # Check if this field has primary_field=True in its ODMFieldInfo
             if hasattr(field, "primary_field") and field.primary_field:
                 primary_field_name = name
                 break
-        
-        # Default to 'id' if no primary field found
+
         if not primary_field_name:
             primary_field_name = 'id'
-        
-        # Create query using the primary field
+
         primary_field = getattr(self.model, primary_field_name)
-        
-        # Handle ID type conversion
+
         if isinstance(id, str) and primary_field_name == 'id':
             id_value = ObjectId(id)
         else:
             id_value = id
-            
-        # Query using the primary field
+
         return await self.engine.find_one(self.model, primary_field == id_value)
 
-    async def get_all(
-        self,
-        db: AgnosticDatabase,
-        *,
-        sort: Optional[Any] = None,
-        skip: Optional[int] = 0,
-        limit: Optional[int] = settings.MULTI_MAX,
-    ) -> List[ModelType]:
-        """
-        Retrieve all objects.
-
-        Args:
-            skip: Number of records to skip
-            limit: Maximum number of records to return
-            db: Database connection
-
-        Returns:
-            List of objects
-        """
-        return await self.engine.find(self.model, sort=sort, skip=skip, limit=limit)
-
-    async def get_by_field(self, db: AgnosticDatabase, field: str, value: Any) -> Optional[ModelType]:
-        """
-        Retrieve an object by a specific field.
-        
-        Args:
-            db: Database connection
-            field: Name of the field to search by
-            value: Value to search for
-            
-        Returns:
-            The object if found, None otherwise
-        """
-        # Get the actual field attribute from the model
+    async def get_by_field(self, field: str, value: Any) -> Optional[ModelType]:
+        """Get an object by a specific field"""
         model_field = getattr(self.model, field)
-        
-        # Create a proper ODMantic query expression
         return await self.engine.find_one(self.model, model_field == value)
+
+    async def get_by_fields(self, **kwargs) -> Optional[ModelType]:
+        """Get an object by multiple field-value pairs."""
+        query = None
+        for field_name, value in kwargs.items():
+            field_expr = getattr(self.model, field_name) == value
+            if query is None:
+                query = field_expr
+            else:
+                query = query & field_expr
+        return await self.engine.find_one(self.model, query)
 
     async def get_multi(
         self,
-        db: AgnosticDatabase,
         *,
         filters: Optional[Dict[str, Any]] = None,
-        filter_expression: Optional[
-            Any
-        ] = None,  # Or alternatively filter by ODMantic expressions
+        filter_expression: Optional[Any] = None,
         sort: Optional[Any] = None,
-        skip: Optional[int] = 0,
-        limit: Optional[int] = settings.MULTI_MAX,
+        skip: int = 0,
+        limit: int = settings.MULTI_MAX,
     ) -> List[ModelType]:
-        """
-        Retrieve multiple objects by multiple fields or by a custom query expression.
-        
-        Args:
-            db: Database connection
-            fields: Dictionary of field-value pairs for filtering (legacy approach)
-            query_expression: ODMantic query expression (preferred approach)
-            sort: Sort criteria
-            skip: Number of records to skip
-            limit: Maximum number of records to return
-            
-        Returns:
-            List of matching objects
-        """
+        """Get multiple objects with filtering and sorting"""
         if filter_expression is not None:
-            # Use the provided ODMantic expression directly
             return await self.engine.find(
                 self.model, filter_expression, sort=sort, skip=skip, limit=limit
             )
-
         elif filters:
-            # Convert fields dict to ODMantic expressions
             query = None
             for field_name, value in filters.items():
                 field_expr = getattr(self.model, field_name) == value
                 if query is None:
                     query = field_expr
                 else:
-                    # Combine with logical AND
                     query = query & field_expr
-
             return await self.engine.find(self.model, query, sort=sort, skip=skip, limit=limit)
-
         else:
-            # No filters provided, return all
             return await self.engine.find(self.model, sort=sort, skip=skip, limit=limit)
 
-    async def create(self, db: AgnosticDatabase, *, obj_in: CreateSchemaType) -> ModelType:
+    async def create(self, obj_in: CreateSchemaType) -> ModelType:
+        """Create a new object"""
         obj_in_data = jsonable_encoder(obj_in)
-        db_obj = self.model(**obj_in_data)  # type: ignore
+        db_obj = self.model(**obj_in_data)
         return await self.engine.save(db_obj)
 
-    async def update(
-        self, db: AgnosticDatabase, *, db_obj: ModelType, obj_in: Union[UpdateSchemaType, Dict[str, Any]]
-    ) -> ModelType:
+    async def update(self, db_obj: ModelType, update_data: Union[Dict[str, Any], ModelType]) -> ModelType:
+        """Update a model in database."""
         obj_data = jsonable_encoder(db_obj)
-        if isinstance(obj_in, dict):
-            update_data = obj_in
-        else:
-            update_data = obj_in.model_dump(exclude_unset=True)
+        
+        # If update_data is a model, convert it to dict excluding id
+        if hasattr(update_data, "model_dump"):
+            update_data = update_data.model_dump(exclude={"id"})
+        
+        # Ensure we don't update the primary key
+        if "id" in update_data:
+            del update_data["id"]
+            
+        # Update fields
         for field in obj_data:
             if field in update_data:
                 setattr(db_obj, field, update_data[field])
                 
-        # TODO: Check if this saves changes with the setattr calls
+        # Save to database
         await self.engine.save(db_obj)
         return db_obj
 
-    async def remove(self, db: AgnosticDatabase, *, id: ObjectId | str) -> Optional[ModelType]:
-        obj = await self.get(db=db, id=id) 
+    async def remove(self, id: Union[ObjectId, str]) -> Optional[ModelType]:
+        """Delete an object by ID"""
+        obj = await self.get(id=id)
         if obj:
             await self.engine.delete(obj)
-            
         return obj
+
+    async def execute_query(self, query_func, *args, **kwargs):
+        """
+        For operations that need direct access to PyMongo methods
+
+        Example usage:
+        ```
+        async def complex_aggregation(self, pipeline):
+            return await self.execute_query(
+                lambda collection: collection.aggregate(pipeline)
+            )
+        ```
+        """
+        db = self.engine.client[self.engine.database]
+        collection = db[self.model.get_collection_name()]
+        return await query_func(collection)

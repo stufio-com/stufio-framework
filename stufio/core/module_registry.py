@@ -3,7 +3,7 @@ import inspect
 import logging
 import os
 import pkg_resources
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from fastapi import FastAPI
 
 # Remove the external app dependency
@@ -22,6 +22,14 @@ class ModuleRegistry:
         self.module_paths: Dict[str, str] = {}  # Store module paths by name
         settings = get_settings()
         self.router_prefix = getattr(settings, "API_V1_STR", "/api/v1")
+        
+    def get_module_instance(self, module_name: str) -> Optional["ModuleInterface"]:
+        """Get the module instance by name."""
+        if module_name in self.modules:
+            return self.modules[module_name]
+        else:
+            logger.warning(f"Module {module_name} not found in registry")
+            return None
 
     def discovered_modules(self) -> Dict[str,str]:
         """Return the list of discovered modules with path."""
@@ -190,7 +198,7 @@ class ModuleRegistry:
                 logger.debug(f"No config module found for {module_name}")
             except Exception as e:
                 logger.warning(f"Error importing config for {module_name}: {e}")
-                
+
             if config:
                 try:
                     importlib.import_module(f"{import_path}.settings")
@@ -200,9 +208,9 @@ class ModuleRegistry:
                     logger.warning(f"Error importing settings for {module_name}: {e}")
 
             # Get module version
-            version = getattr(module, "__version__", "0.0.0")
-            if hasattr(module, "__version__") and isinstance(module.__version__, str):
-                version = module.__version__
+            version = getattr(module, "version", "0.0.0")
+            if hasattr(module, "version") and isinstance(module.version, str):
+                version = module.version
 
             # Ensure migrations path exists - create if needed
             if discover_migrations:
@@ -215,12 +223,14 @@ class ModuleRegistry:
                 )
 
             # Look for ModuleInterface implementation
+            logger.debug(f"Looking for ModuleInterface implementation in {module_name}")
             for name, obj in inspect.getmembers(module):
+                logger.debug(f"Found class '{name}' with methods: {[m for m in dir(obj) if not m.startswith('_')]}")
                 if (inspect.isclass(obj) and 
                     name != "ModuleInterface" and 
                     hasattr(obj, "register") and
                     hasattr(obj, "get_models")):
-
+                    
                     # Create an instance of the module interface
                     instance = obj()
                     self.modules[module_name] = instance
@@ -275,51 +285,117 @@ class ModuleRegistry:
         return middlewares
 
     def register_all_modules(self, app: FastAPI) -> None:
-        """Register all modules."""
-
+        """Register all modules with better error handling."""
         # Register stufio core routes
-        from stufio.api.endpoints import api_router
-        app.include_router(api_router, prefix=self.router_prefix)
+        try:
+            from stufio.api.endpoints import api_router
+            app.include_router(api_router, prefix=self.router_prefix)
+            logger.info("Registered core API routes")
+        except Exception as e:
+            logger.error(f"Failed to register core API routes: {str(e)}", exc_info=True)
 
+        # Register each module
         for module_name, module in self.modules.items():
             try:
                 module.register(app)
-                logger.info(f"Registered routes for module: {module_name}")
+                logger.info(f"Registered module: {module_name}")
             except Exception as e:
-                logger.error(f"Failed to register routes for module {module_name}: {e}")
+                logger.error(f"Failed to register module {module_name}: {str(e)}", exc_info=True)
 
-        # Register admin routes
-        app.include_router(admin_router, prefix=get_settings().API_V1_STR)
-        # Register internal routes
-        app.include_router(internal_router, prefix=get_settings().API_V1_STR)
+        # Register admin/internal routes
+        try:
+            app.include_router(admin_router, prefix=get_settings().API_V1_STR)
+            app.include_router(internal_router, prefix=get_settings().API_V1_STR)
+            logger.info("Registered admin and internal routes")
+        except Exception as e:
+            logger.error(f"Failed to register admin/internal routes: {str(e)}", exc_info=True)
+
+    def unregister_all_modules(self, app: FastAPI) -> None:
+        """Unregister all modules."""
+
+        for module_name, module in self.modules.items():
+            try:
+                module.unregister(app)
+                logger.info(f"Unregistered module: {module_name}")
+            except Exception as e:
+                logger.error(f"Failed to unregister module {module_name}: {e}")
 
 
 class ModuleInterface:
-    """Interface that all modules must implement for registration."""
-    
-    __version__ = "0.0.0"
-    # Change from double underscore to single underscore to avoid name mangling
-    _routes_prefix = get_settings().API_V1_STR
+    """Base interface for registering modules with the app."""
 
-    def register_routes(self, app: FastAPI) -> None:
-        """Register routes with the FastAPI application."""
+    # Module metadata
+    name: str = None
+    version: str = "0.1.0"
+    _routes_prefix: str = None
+
+    def __init__(self):
+        # Auto-determine module name from class name if not provided
+        if not self.name:
+            cls_name = self.__class__.__name__
+            if cls_name.endswith("Module"):
+                self.name = cls_name[:-6].lower()
+            else:
+                self.name = cls_name.lower()
+
+    def register(self, app: 'StufioAPI') -> None:
+        """Register this module with the FastAPI app."""
+        try:
+            # Call register_routes by default
+            self.register_routes(app)
+        except NotImplementedError:
+            logger.warning(f"Module {self.name} does not implement register_routes")
+        except Exception as e:
+            logger.error(f"Error registering routes for module {self.name}: {str(e)}", exc_info=True)
+
+        # Check if this module supports Kafka
+        if hasattr(self, "register_kafka_consumers"):
+            try:
+                # It's using the KafkaModuleMixin
+                self.register_kafka_consumers(app, self.name)
+            except Exception as e:
+                logger.error(f"Error registering Kafka consumers for module {self.name}: {str(e)}", exc_info=True)
+
+    def unregister(self, app: 'StufioAPI') -> None:
+        """Unregister this module from the FastAPI app."""
         pass
 
-    def get_middlewares(self) -> List[tuple]:
-        """Return middleware classes that should be added to the app.
-        
-        Returns:
-            List of (middleware_class, args, kwargs) tuples
-        """
-        return []
+    async def on_startup(self, app: 'StufioAPI') -> None:
+        """Called when the application starts up."""
+        # Check if this module supports Kafka
+        if hasattr(self, "start_kafka"):
+            # It's using the KafkaModuleMixin
+            await self.start_kafka(app)
 
-    def register(self, app: FastAPI) -> None:
-        """Legacy method for backwards compatibility."""
-        self.register_routes(app)
+    async def on_shutdown(self, app: 'StufioAPI') -> None:
+        """Called when the application shuts down."""
+        # Check if this module supports Kafka
+        if hasattr(self, "stop_kafka"):
+            # It's using the KafkaModuleMixin
+            await self.stop_kafka(app)
+
+    def register_routes(self, app: 'StufioAPI') -> None:
+        """Register this module's routes with the FastAPI app."""
+        raise NotImplementedError
+
+    def get_middlewares(self) -> List[Tuple]:
+        """Return middleware classes for this module."""
+        return []
 
     def get_models(self) -> List[Any]:
-        """Return a list of database models defined by this module."""
+        """Return this module's database models."""
         return []
+
+    @property
+    def routes_prefix(self) -> str:
+        """Get the routes prefix for this module."""
+        if not self._routes_prefix:
+            settings = get_settings()
+            api_prefix = getattr(settings, "API_V1_STR", "/api/v1")
+
+            self._routes_prefix = api_prefix
+
+        return self._routes_prefix
 
 
 # Singleton instance

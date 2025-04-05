@@ -23,7 +23,7 @@ async def init_db(
         await run_migrations(db, clickhouse)
 
         # Create superuser if it doesn't exist
-        user = await crud.user.get_by_email(db, email=settings.FIRST_SUPERUSER)
+        user = await crud.user.get_by_email(settings.FIRST_SUPERUSER)
         if not user:
             # Create user auth
             user_in = schemas.UserCreate(
@@ -32,7 +32,7 @@ async def init_db(
                 is_superuser=True,
                 full_name=settings.FIRST_SUPERUSER,
             )
-            user = await crud.user.create(db, obj_in=user_in)
+            user = await crud.user.create(obj_in=user_in)
             logger.info(f"Superuser created: {settings.FIRST_SUPERUSER}")
 
     except Exception as e:

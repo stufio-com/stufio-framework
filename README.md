@@ -8,7 +8,7 @@ A modular FastAPI framework for building scalable modern web applications with i
 - **Database Integration**: Built-in support for MongoDB and ClickHouse
 - **API Development**: Simplified endpoint creation with dependency injection
 - **WebSockets**: Native support for real-time communication
-- **Background Tasks**: Celery integration for asynchronous processing
+- **Background Tasks**: Taskiq integration for asynchronous processing
 - **Security**: Authentication and authorization patterns built-in
 - **Documentation**: Automatic API documentation generation
 

@@ -17,9 +17,7 @@ async def get_settings_schemas() -> Dict[str, Dict[str, Any]]:
 
 
 @router.post("/refresh-cache", response_model=Dict[str, bool])
-async def refresh_settings_cache(
-    db: AgnosticDatabase = Depends(deps.get_db),
-) -> Dict[str, bool]:
+async def refresh_settings_cache() -> Dict[str, bool]:
     """Refresh the entire settings cache"""
-    await crud_setting.refresh_cache(db)
+    await crud_setting.refresh_cache()
     return {"success": True}

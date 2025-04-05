@@ -1,4 +1,6 @@
+import asyncio
 from typing import Optional
+from venv import logger
 from stufio.core.config import get_settings
 
 import clickhouse_connect
@@ -18,7 +20,6 @@ def get_database_from_dsn(dsn: str = settings.CLICKHOUSE_DSN) -> str:
 
 class ClickhouseConnectionError(Exception):
     """Raised when Clickhouse connection fails"""
-
     pass
 
 
@@ -33,20 +34,23 @@ class _ClickhouseClientSingleton:
     async def get_instance(cls):
         if not cls._instance:
             try:
-                cls._instance = cls()
-                cls._instance.clickhouse_client = (
-                    await clickhouse_connect.get_async_client(
-                        dsn=settings.CLICKHOUSE_DSN,
-                        client_name=f"stufio.fastapi",
-                    )
+                logger.info(
+                    f"Connecting to Clickhouse at {settings.CLICKHOUSE_DSN}"
                 )
-                # Verify connection works
-                await cls._instance.clickhouse_client.ping()
+                clickhouse_client = await clickhouse_connect.get_async_client(
+                    dsn=settings.CLICKHOUSE_DSN,
+                    client_name=f"stufio.fastapi",
+                )
+                await clickhouse_client.ping()
+                
+                cls._instance = cls()
+                cls._instance.clickhouse_client = clickhouse_client
             except ClickHouseError as e:
                 cls._instance = None
                 raise ClickhouseConnectionError(
                     f"Failed to connect to Clickhouse: {str(e)}"
                 )
+                
         return cls._instance
 
 
@@ -65,6 +69,7 @@ async def ping(retries: int = 3) -> bool:
             await client.ping()
             return True
         except (ClickhouseConnectionError, ClickHouseError) as e:
+            await asyncio.sleep(0.1)
             if attempt == retries - 1:
                 raise ClickhouseConnectionError(
                     f"Failed to ping Clickhouse after {retries} attempts: {str(e)} DSN: {settings.CLICKHOUSE_DSN}"

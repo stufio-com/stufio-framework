@@ -43,7 +43,6 @@ def get_token_payload(token: str) -> schemas.TokenPayload:
 
 
 async def get_current_user_optional(
-    db: AgnosticDatabase = Depends(get_db),
     token: Optional[str] = Depends(reusable_oauth2_optional),
 ) -> Optional[models.User]:
     """Similar to get_current_user but returns None for unauthenticated users instead of raising an exception."""
@@ -51,11 +50,11 @@ async def get_current_user_optional(
         return None
 
     
-    return await get_current_user(db=db, token=token)
+    return await get_current_user(token=token)
 
 
 async def get_current_user(
-    db: AgnosticDatabase = Depends(get_db), token: str = Depends(reusable_oauth2)
+    token: str = Depends(reusable_oauth2)
 ) -> models.User:
     token_data = get_token_payload(token)
     if token_data.refresh or token_data.totp:
@@ -64,13 +63,13 @@ async def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Could not validate credentials",
         )
-    user = await crud.user.get(db, token_data.sub)
+    user = await crud.user.get(token_data.sub)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
 
 
-async def get_totp_user(db: AgnosticDatabase = Depends(get_db), token: str = Depends(reusable_oauth2)) -> models.User:
+async def get_totp_user(token: str = Depends(reusable_oauth2)) -> models.User:
     token_data = get_token_payload(token)
     if token_data.refresh or not token_data.totp:
         # Refresh token is not a valid access token and TOTP False cannot be used to validate TOTP
@@ -78,7 +77,7 @@ async def get_totp_user(db: AgnosticDatabase = Depends(get_db), token: str = Dep
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Could not validate credentials",
         )
-    user = await crud.user.get(db, token_data.sub)
+    user = await crud.user.get(token_data.sub)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
@@ -102,7 +101,7 @@ def get_magic_token(token: str = Depends(reusable_oauth2)) -> schemas.MagicToken
 
 
 async def get_refresh_user(
-    db: AgnosticDatabase = Depends(get_db), token: str = Depends(reusable_oauth2)
+    token: str = Depends(reusable_oauth2)
 ) -> models.User:
     token_data = get_token_payload(token)
     if not token_data.refresh:
@@ -111,19 +110,19 @@ async def get_refresh_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Could not validate credentials",
         )
-    user = await crud.user.get(db, token_data.sub)
+    user = await crud.user.get(token_data.sub)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     if not crud.user.is_active(user):
         raise HTTPException(status_code=400, detail="Inactive user")
     # Check and revoke this refresh token
-    token_obj = await crud.token.get(token=token, user=user)
+    token_obj = await crud.token.get_by_user(user=user, token=token)
     if not token_obj:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Could not validate credentials",
         )
-    await crud.token.remove(db, db_obj=token_obj)
+    await crud.token.remove(db_obj=token_obj)
     return user
 
 
@@ -143,7 +142,7 @@ async def get_current_active_superuser(
     return current_user
 
 
-async def get_active_websocket_user(*, db: AgnosticDatabase, token: str) -> models.User:
+async def get_active_websocket_user(*, token: str) -> models.User:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGO])
         token_data = schemas.TokenPayload(**payload)
@@ -152,7 +151,7 @@ async def get_active_websocket_user(*, db: AgnosticDatabase, token: str) -> mode
     if token_data.refresh:
         # Refresh token is not a valid access token
         raise ValidationError("Could not validate credentials")
-    user = await crud.user.get(db, token_data.sub)
+    user = await crud.user.get(token_data.sub)
     if not user:
         raise ValidationError("User not found")
     if not crud.user.is_active(user):

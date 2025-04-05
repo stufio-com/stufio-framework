@@ -1,10 +1,7 @@
 from typing import Any, Union, Annotated
-from venv import logger
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Header, Request
 from fastapi.security import OAuth2PasswordRequestForm
-from motor.core import AgnosticDatabase
-from odmantic import ObjectId
 
 from pydantic_core import Url
 from stufio import crud, models, schemas
@@ -41,16 +38,16 @@ See `security.py` for other requirements.
 
 @router.post("/magic/{email}", response_model=schemas.WebToken)
 async def login_with_magic_link(
-    *, db: AgnosticDatabase = Depends(deps.get_db), email: str, request: Request
+    *, email: str, request: Request
 ) -> Any:
     """
     First step of a 'magic link' login. Check if the user exists and generate a magic link. Generates two short-duration
     jwt tokens, one for validation, one for email. Creates user if not exist.
     """
-    user = await crud.user.get_by_email(db, email=email)
+    user = await crud.user.get_by_email(email)
     if not user:
         user_in = schemas.UserCreate(**{"email": email})
-        user = await crud.user.create(db, obj_in=user_in)
+        user = await crud.user.create(user_in)
 
     if not crud.user.is_active(user):
         # Still permits a timed-attack, but does create ambiguity.
@@ -81,14 +78,13 @@ async def login_with_magic_link(
 @router.post("/claim", response_model=schemas.Token)
 async def validate_magic_link(
     *,
-    db: AgnosticDatabase = Depends(deps.get_db),
     obj_in: schemas.WebToken,
     magic_in: schemas.MagicTokenPayload = Depends(deps.get_magic_token),
 ) -> Any:
     """
     Second step of a 'magic link' login.
     """
-    claim_in = deps.get_magic_token(token=obj_in.claim)
+    claim_in = deps.get_magic_token(obj_in.claim)
     # Get the user
     if (
         not claim_in.sub
@@ -98,7 +94,7 @@ async def validate_magic_link(
     ):
         raise HTTPException(status_code=400, detail="Login failed; invalid claim.")
 
-    user = await crud.user.get(db, claim_in.sub)
+    user = await crud.user.get(claim_in.sub)
     # Test the claims
 
     if (
@@ -111,7 +107,7 @@ async def validate_magic_link(
 
     # Validate that the email is the user's
     if not user.email_validated:
-        await crud.user.validate_email(db=db, db_obj=user)
+        await crud.user.validate_email(db_obj=user)
 
     # Check if totp active
     refresh_token = None
@@ -121,7 +117,7 @@ async def validate_magic_link(
         # No TOTP, so this concludes the login validation
         force_totp = False
         refresh_token = security.create_refresh_token(subject=user.id)
-        await crud.token.create(db=db, obj_in=refresh_token, user_obj=user)
+        await crud.token.create(obj_in=refresh_token, user_obj=user)
 
     return {
         "access_token": security.create_access_token(
@@ -136,7 +132,6 @@ async def validate_magic_link(
 async def claim_by_email(
     email: str,
     obj_in: schemas.WebToken,
-    db: AgnosticDatabase = Depends(deps.get_db),
 ) -> Any:
     """
     Claim email as validated
@@ -151,7 +146,7 @@ async def claim_by_email(
             )
 
         # Get the user
-        user = await crud.user.get_by_email(db, email=claim_in.sub)
+        user = await crud.user.get_by_email(email=claim_in.sub)
 
         if not user or not crud.user.is_active(user):
             raise HTTPException(
@@ -174,7 +169,7 @@ async def claim_by_email(
             # No TOTP, so this concludes the login validation
             force_totp = False
             refresh_token = security.create_refresh_token(subject=user.id)
-            await crud.token.create(db=db, obj_in=refresh_token, user_obj=user)
+            await crud.token.create(obj_in=refresh_token, user_obj=user)
 
         return {
             "access_token": security.create_access_token(
@@ -195,7 +190,6 @@ async def claim_by_email(
 @router.post("/validate", response_model=schemas.Msg)
 async def validate_email(
     obj_in: schemas.WebToken,
-    db: AgnosticDatabase = Depends(deps.get_db),
 ) -> Any:
     """
     Mark email as validated.
@@ -210,7 +204,7 @@ async def validate_email(
             )
 
         # Get the user
-        user = await crud.user.get(db, claim_in.sub)
+        user = await crud.user.get(claim_in.sub)
         if not user or not crud.user.is_active(user):
             raise HTTPException(
                 status_code=400,
@@ -224,7 +218,7 @@ async def validate_email(
                 detail="Resend verification email failed; already verified.",
             )
 
-        await crud.user.validate_email(db=db, db_obj=user)
+        await crud.user.validate_email(db_obj=user)
 
         return {
             "msg": "Email validated successfully. Please use the login form to log in."
@@ -241,7 +235,6 @@ async def validate_email(
 async def resend_validation_email(
     email: str,
     obj_in: schemas.WebToken,
-    db: AgnosticDatabase = Depends(deps.get_db),
 ) -> Any:
     """
     Resend verification email.
@@ -256,7 +249,7 @@ async def resend_validation_email(
             )
         
         # Get the user
-        user = await crud.user.get_by_email(db, email=claim_in.sub)
+        user = await crud.user.get_by_email(claim_in.sub)
 
         if not user or not crud.user.is_active(user):
             raise HTTPException(
@@ -291,7 +284,7 @@ async def resend_validation_email(
             )
             send_email_validation_email(data)
 
-            await crud.user.increment_email_verification_counter(db=db, db_obj=user)
+            await crud.user.increment_email_verification_counter(db_obj=user)
 
         return {"claim": tokens[1]}
     except Exception as e:
@@ -304,14 +297,13 @@ async def resend_validation_email(
 
 @router.post("/oauth", response_model=schemas.Token | schemas.WebToken)
 async def login_with_oauth2(
-    db: AgnosticDatabase = Depends(deps.get_db),
     form_data: OAuth2PasswordRequestForm = Depends(),
 ) -> Any:
     """
     First step with OAuth2 compatible token login, get an access token for future requests.
     """
     user = await crud.user.authenticate(
-        db, email=form_data.username, password=form_data.password
+        email=form_data.username, password=form_data.password
     )
     if not form_data.password or not user or not crud.user.is_active(user):
         raise HTTPException(
@@ -340,7 +332,7 @@ async def login_with_oauth2(
             )
             send_email_validation_email(data)
 
-            await crud.user.increment_email_verification_counter(db=db, db_obj=user)
+            await crud.user.increment_email_verification_counter(db_obj=user)
 
         return {"claim": tokens[1]}
 
@@ -352,7 +344,7 @@ async def login_with_oauth2(
         # No TOTP, so this concludes the login validation
         force_totp = False
         refresh_token = security.create_refresh_token(subject=user.id)
-        await crud.token.create(db=db, obj_in=refresh_token, user_obj=user)
+        await crud.token.create(obj_in=refresh_token, user_obj=user)
 
     return {
         "access_token": security.create_access_token(
@@ -366,7 +358,6 @@ async def login_with_oauth2(
 @router.post("/totp", response_model=schemas.Token)
 async def login_with_totp(
     *,
-    db: AgnosticDatabase = Depends(deps.get_db),
     totp_data: schemas.WebToken,
     current_user: models.User = Depends(deps.get_totp_user),
 ) -> Any:
@@ -384,10 +375,10 @@ async def login_with_totp(
         )
     # Save the new counter to prevent reuse
     current_user = await crud.user.update_totp_counter(
-        db=db, db_obj=current_user, new_counter=new_counter
+        db_obj=current_user, new_counter=new_counter
     )
     refresh_token = security.create_refresh_token(subject=current_user.id)
-    await crud.token.create(db=db, obj_in=refresh_token, user_obj=current_user)
+    await crud.token.create(obj_in=refresh_token, user_obj=current_user)
     return {
         "access_token": security.create_access_token(subject=current_user.id),
         "refresh_token": refresh_token,
@@ -398,7 +389,6 @@ async def login_with_totp(
 @router.put("/totp", response_model=schemas.Msg)
 async def enable_totp_authentication(
     *,
-    db: AgnosticDatabase = Depends(deps.get_db),
     data_in: schemas.EnableTOTP,
     current_user: models.User = Depends(deps.get_current_active_user),
 ) -> Any:
@@ -407,7 +397,7 @@ async def enable_totp_authentication(
     """
     if current_user.hashed_password:
         user = await crud.user.authenticate(
-            db, email=current_user.email, password=data_in.password
+            email=current_user.email, password=data_in.password
         )
         if not data_in.password or not user:
             raise HTTPException(
@@ -425,10 +415,10 @@ async def enable_totp_authentication(
         )
     # Enable TOTP and save the new counter to prevent reuse
     current_user = await crud.user.activate_totp(
-        db=db, db_obj=current_user, totp_in=totp_in
+        db_obj=current_user, totp_in=totp_in
     )
     current_user = await crud.user.update_totp_counter(
-        db=db, db_obj=current_user, new_counter=new_counter
+        db_obj=current_user, new_counter=new_counter
     )
     return {"msg": "TOTP enabled. Do not lose your recovery code."}
 
@@ -436,7 +426,6 @@ async def enable_totp_authentication(
 @router.delete("/totp", response_model=schemas.Msg)
 async def disable_totp_authentication(
     *,
-    db: AgnosticDatabase = Depends(deps.get_db),
     data_in: schemas.UserUpdate,
     current_user: models.User = Depends(deps.get_current_active_user),
 ) -> Any:
@@ -445,26 +434,25 @@ async def disable_totp_authentication(
     """
     if current_user.hashed_password:
         user = await crud.user.authenticate(
-            db, email=current_user.email, password=data_in.original
+            email=current_user.email, password=data_in.original
         )
         if not data_in.original or not user:
             raise HTTPException(
                 status_code=400, detail="Unable to authenticate or deactivate TOTP."
             )
-    await crud.user.deactivate_totp(db=db, db_obj=current_user)
+    await crud.user.deactivate_totp(db_obj=current_user)
     return {"msg": "TOTP disabled."}
 
 
 @router.post("/refresh", response_model=schemas.Token)
 async def refresh_token(
-    db: AgnosticDatabase = Depends(deps.get_db),
     current_user: models.User = Depends(deps.get_refresh_user),
 ) -> Any:
     """
     Refresh tokens for future requests
     """
     refresh_token = security.create_refresh_token(subject=current_user.id)
-    await crud.token.create(db=db, obj_in=refresh_token, user_obj=current_user)
+    await crud.token.create(obj_in=refresh_token, user_obj=current_user)
     return {
         "access_token": security.create_access_token(subject=current_user.id),
         "refresh_token": refresh_token,
@@ -474,23 +462,25 @@ async def refresh_token(
 
 @router.post("/revoke", response_model=schemas.Msg)
 async def revoke_token(
-    db: AgnosticDatabase = Depends(deps.get_db),
     current_user: models.User = Depends(deps.get_refresh_user),
+    token: str = Depends(deps.reusable_oauth2),
 ) -> Any:
     """
     Revoke a refresh token
     """
+    token_obj = await crud.token.get_by_user(token=token, user=current_user)
+    if token_obj:
+        await crud.token.remove(db_obj=token_obj)
+
     return {"msg": "Token revoked"}
 
 
 @router.post("/recover/{email}", response_model=Union[schemas.WebToken, schemas.Msg])
-async def recover_password(
-    email: str, db: AgnosticDatabase = Depends(deps.get_db)
-) -> Any:
+async def recover_password(email: str) -> Any:
     """
     Password Recovery
     """
-    user = await crud.user.get_by_email(db, email=email)
+    user = await crud.user.get_by_email(email=email)
     if user and crud.user.is_active(user):
         tokens = security.create_magic_tokens(subject=user.id, pub=user.email)
         if settings.EMAILS_ENABLED:
@@ -502,17 +492,13 @@ async def recover_password(
 
 
 @router.post("/reset", response_model=schemas.Msg)
-async def reset_password(
-    *,
-    db: AgnosticDatabase = Depends(deps.get_db),
-    data_in: schemas.UserUpdatePassword,
-) -> Any:
+async def reset_password(data_in: schemas.UserUpdatePassword) -> Any:
     """
     Reset password
     """
     claim_in = deps.get_magic_token(token=data_in.claim)
     # Get the user
-    user = await crud.user.get(db, claim_in.sub)
+    user = await crud.user.get(claim_in.sub)
     # Test the claims
     if not user or not crud.user.is_active(user):
         raise HTTPException(
@@ -522,6 +508,6 @@ async def reset_password(
     # Update the password
     hashed_password = security.get_password_hash(data_in.new_password)
     user.hashed_password = hashed_password
-    await crud.user.update(db=db, db_obj=user, obj_in={"hashed_password": hashed_password})
+    await crud.user.update(db_obj=user, obj_in={"hashed_password": hashed_password})
 
     return {"msg": "Password updated successfully."}

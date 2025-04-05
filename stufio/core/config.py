@@ -1,7 +1,6 @@
 import os
 import secrets
 from typing import Any, Dict, List, Optional, Union, ClassVar, Type
-from celery.app.utils import Settings
 from pydantic import AnyHttpUrl, ConfigDict, EmailStr, HttpUrl, field_validator, create_model
 from pydantic_core.core_schema import ValidationInfo
 from pydantic_settings import BaseSettings
@@ -59,8 +58,6 @@ class StufioSettings(BaseStufioSettings):
     MONGO_DATABASE_URI: str
 
     CLICKHOUSE_DSN: str
-
-    CELERY_BROKER_URL: str
 
     SMTP_TLS: bool = True
     SMTP_PORT: Optional[int] = None

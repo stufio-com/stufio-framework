@@ -19,14 +19,12 @@ router = APIRouter()
 
 @router.post("/", response_model=schemas.User)
 async def create_user_profile(
-    *,
-    db: AgnosticDatabase = Depends(deps.get_db),
     obj_in: schemas.UserCreatePublic,
 ) -> Any:
     """
     Create new user without the need to be logged in.
     """
-    user = await crud.user.get_by_email(db, email=obj_in.email)
+    user = await crud.user.get_by_email(email=obj_in.email)
     if user:
         raise HTTPException(
             status_code=400,
@@ -37,7 +35,7 @@ async def create_user_profile(
         **obj_in.dict(),
         email_validated=0 if settings.EMAILS_USER_CONFIRMATION_EMAIL else 1,
     )
-    user = await crud.user.create(db, obj_in=user_in)
+    user = await crud.user.create(obj_in=user_in)
 
     if (
         settings.EMAILS_ENABLED
@@ -53,8 +51,6 @@ async def create_user_profile(
 
 @router.put("/", response_model=schemas.User)
 async def update_user(
-    *,
-    db: AgnosticDatabase = Depends(deps.get_db),
     obj_in: schemas.UserUpdate,
     current_user: models.User = Depends(deps.get_current_active_user),
 ) -> Any:
@@ -62,7 +58,7 @@ async def update_user(
     Update user.
     """
     if current_user.hashed_password:
-        user = await crud.user.authenticate(db, email=current_user.email, password=obj_in.original)
+        user = await crud.user.authenticate(email=current_user.email, password=obj_in.original)
         if not obj_in.original or not user:
             raise HTTPException(status_code=400, detail="Unable to authenticate this update.")
     current_user_data = jsonable_encoder(current_user)
@@ -72,14 +68,14 @@ async def update_user(
     if obj_in.full_name is not None:
         user_in.full_name = obj_in.full_name
     if obj_in.email is not None:
-        check_user = await crud.user.get_by_email(db, email=obj_in.email)
+        check_user = await crud.user.get_by_email(email=obj_in.email)
         if check_user and check_user.email != current_user.email:
             raise HTTPException(
                 status_code=400,
                 detail="This username is not available.",
             )
         user_in.email = obj_in.email
-    user = await crud.user.update(db, db_obj=current_user, obj_in=user_in)
+    user = await crud.user.update(db_obj=current_user, obj_in=user_in)
     return user
 
 
