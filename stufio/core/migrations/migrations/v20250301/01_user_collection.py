@@ -9,10 +9,10 @@ class CreateUserCollection(MongoMigrationScript):
     
     async def run(self, db: AgnosticDatabase) -> None:
         # Make sure collection exists
-        if "user" not in await db.list_collection_names():
-            await db.create_collection("user")
+        if "users" not in await db.list_collection_names():
+            await db.create_collection("users")
         
-        user_collection = db["user"]
+        user_collection = db["users"]
         
         # Unique email index
         await user_collection.create_index(

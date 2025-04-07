@@ -1,4 +1,5 @@
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Union, List
+from odmantic import ObjectId
 from stufio.crud.mongo_base import CRUDMongo
 from stufio.core.security import get_password_hash, verify_password
 from stufio.models.user import User
@@ -92,5 +93,44 @@ class CRUDUser(CRUDMongo[User, UserCreate, UserUpdate]):
     def is_email_validated(self, user: User) -> bool:
         return user.email_validated
 
+    # Add new methods for user groups
+    async def add_to_group(self, user: User, group_id: ObjectId) -> User:
+        """Add a user to a group"""
+        if group_id not in user.user_groups:
+            user.user_groups.append(group_id)
+            return await self.engine.save(user)
+        return user
+    
+    async def remove_from_group(self, user: User, group_id: ObjectId) -> User:
+        """Remove a user from a group"""
+        if group_id in user.user_groups:
+            user.user_groups.remove(group_id)
+            return await self.engine.save(user)
+        return user
+    
+    async def set_user_groups(self, user: User, group_ids: List[ObjectId]) -> User:
+        """Set the user's groups (replacing existing ones)"""
+        user.user_groups = group_ids
+        return await self.engine.save(user)
+    
+    async def get_users_by_group(self, group_id: ObjectId) -> List[User]:
+        """Get all users in a specific group"""
+        return await self.get_multi(filters={"user_groups": group_id})
+    
+    async def get_user_groups(self, user: User) -> List[ObjectId]:
+        """Get all groups a user belongs to"""
+        return user.user_groups
+    
+    def is_in_group(self, user: User, group_id: ObjectId) -> bool:
+        """Check if a user is in a specific group"""
+        return group_id in user.user_groups
+    
+    def has_any_group(self, user: User, group_ids: List[ObjectId]) -> bool:
+        """Check if a user is in any of the specified groups"""
+        return any(group_id in user.user_groups for group_id in group_ids)
+    
+    def has_all_groups(self, user: User, group_ids: List[ObjectId]) -> bool:
+        """Check if a user is in all of the specified groups"""
+        return all(group_id in user.user_groups for group_id in group_ids)
 
 user = CRUDUser(User)

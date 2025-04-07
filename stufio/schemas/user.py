@@ -1,4 +1,4 @@
-from typing import Optional, Annotated
+from typing import Optional, List, Annotated
 from pydantic import BaseModel, Field, EmailStr, StringConstraints, field_validator
 from odmantic import ObjectId
 
@@ -15,6 +15,7 @@ class UserBase(BaseModel):
     is_active: Optional[bool] = True
     is_superuser: Optional[bool] = False
     full_name: str = ""
+    user_groups: Optional[List[ObjectId]] = []  # Add user_groups here
 
 
 # Properties to receive via admin API on creation
@@ -32,6 +33,7 @@ class UserCreatePublic(BaseModel):
 class UserUpdate(UserBase):
     original: Optional[Annotated[str, StringConstraints(min_length=8, max_length=64)]] = None
     password: Optional[Annotated[str, StringConstraints(min_length=8, max_length=64)]] = None
+    user_groups: Optional[List[ObjectId]] = None  # Make it optional
 
 
 class UserInDBBase(UserBase):
@@ -68,6 +70,7 @@ class UserInDB(UserInDBBase):
     totp_secret: Optional[str] = None
     totp_counter: Optional[int] = None
     email_tokens_cnt: Optional[int] = None
+    user_groups: List[ObjectId] = []  # Include user_groups
 
 
 class UserUpdatePassword(BaseModel):
