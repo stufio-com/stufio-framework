@@ -15,9 +15,8 @@ class StufioSettings(BaseStufioSettings):
     API_PROFILE: bool = False
     SECRET_KEY: str = secrets.token_urlsafe(32)
     TOTP_SECRET_KEY: str = secrets.token_urlsafe(32)
-    # 60 minutes * 24 hours * 8 days = 8 days
-    ACCESS_TOKEN_EXPIRE_SECONDS: int = 60 * 30
-    REFRESH_TOKEN_EXPIRE_SECONDS: int = 60 * 60 * 24 * 30
+    ACCESS_TOKEN_EXPIRE_SECONDS: int = 60 * 10 # 10 minutes
+    REFRESH_TOKEN_EXPIRE_SECONDS: int = 60 * 60 * 24 * 1 # 1 day
     JWT_ALGO: str = "HS512"
     TOTP_ALGO: str = "SHA-1"
     SERVER_NAME: str
@@ -145,7 +144,6 @@ def get_settings():
 
 
 # Register metadata for settings
-
 settings_registry.register_group(
     GroupMetadata(id="general", label="General Settings", order=10)
 )
@@ -153,15 +151,9 @@ settings_registry.register_group(
     GroupMetadata(id="api", label="API Settings", order=50)
 )
 
-
-# settings_registry.register_subgroup(
-#     subgroup=SubgroupMetadata(id="endpoints", group_id="api", label="Endpoints", order=10)
-# )
 settings_registry.register_subgroup(
     SubgroupMetadata(id="debugging", group_id="api", label="Debugging", order=200),
 )
-
-
 
 settings_registry.register_setting(
     SettingMetadata(

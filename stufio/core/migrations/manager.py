@@ -130,8 +130,7 @@ class MigrationManager:
                 f"Error discovering migrations for module {module_name}: {str(e)}"
             )
 
-    def _discover_migrations(self, migrations_path: str, module_name: str, version: str, 
-                           import_path_generator: callable) -> None:
+    def _discover_migrations(self, migrations_path: str, module_name: str, version: str, import_path_generator: callable) -> None:
         """
         Common implementation for discovering migrations.
         

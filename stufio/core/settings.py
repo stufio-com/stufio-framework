@@ -42,7 +42,7 @@ class BaseStufioSettings(BaseSettings):
         cls._module_settings_registry[module_name] = settings_class
         
         # If this is an instance, also initialize immediately
-        if not isinstance(cls, type):
+        if isinstance(cls, type):
             instance = cls
             if not hasattr(instance, "modules") or instance.modules is None:
                 instance.modules = {}
