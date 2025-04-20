@@ -6,6 +6,7 @@ from pydantic_core.core_schema import ValidationInfo
 from pydantic_settings import BaseSettings
 from .settings import BaseStufioSettings, ModuleSettings
 from .setting_registry import SettingMetadata, GroupMetadata, SubgroupMetadata, SettingType, settings_registry
+from urllib.parse import urlparse  # Add this import at the top
 
 class StufioSettings(BaseStufioSettings):
     APP_NAME: str = "app"
@@ -50,13 +51,113 @@ class StufioSettings(BaseStufioSettings):
         return v
 
     # GENERAL SETTINGS
+
+    APP_REGION: str = ""
+
     MULTI_MAX: int = 20
 
-    # COMPONENT SETTINGS
+    # MONGO DB SETTINGS
     MONGO_DATABASE: str
     MONGO_DATABASE_URI: str
 
+    @field_validator("MONGO_DATABASE_URI", mode="before")
+    def optimize_mongo_uri_for_region(cls, v: str, info: ValidationInfo) -> str:
+        """
+        Optimizes MongoDB connection string by placing region-specific nodes first.
+        If using replica set with readPreference=nearest and APP_REGION is defined,
+        nodes ending with -${APP_REGION} will be prioritized.
+        """
+        if not v or not isinstance(v, str):
+            return v
+
+        # Get APP_REGION from settings
+        app_region = info.data.get("APP_REGION")
+        if not app_region:
+            return v  # No region specified, return original
+
+        # Check if this is a replica set connection with multiple hosts
+        if not ("," in v and "replicaSet" in v and "readPreference=nearest" in v):
+            return v  # Not a replica set with nearest read preference
+
+        try:
+            # Parse MongoDB URI
+            protocol_part, rest = v.split("://", 1)
+
+            # Split hosts from options
+            hosts_part, options_part = rest.split("/", 1) if "/" in rest else (rest, "")
+
+            # Get list of hosts
+            hosts = hosts_part.split(",")
+
+            # Find region-specific hosts
+            region_hosts = [h for h in hosts if f"-{app_region}" in h.lower()]
+            other_hosts = [h for h in hosts if f"-{app_region}" not in h.lower()]
+
+            # If we found region-specific hosts, reorder them
+            if region_hosts:
+                # Reorder: put region-specific hosts first
+                new_hosts = region_hosts + other_hosts
+
+                # Reconstruct the connection string
+                new_hosts_part = ",".join(new_hosts)
+
+                # Rebuild the full connection string
+                if options_part:
+                    return f"{protocol_part}://{new_hosts_part}/{options_part}"
+                else:
+                    return f"{protocol_part}://{new_hosts_part}"
+
+            # If no region-specific hosts found, return original string
+            return v
+
+        except Exception:
+            # If any parsing error occurs, return original string
+            return v
+
+    # CLICKHOUSE SETTINGS
     CLICKHOUSE_DSN: str
+    CLICKHOUSE_CLUSTER_DSN_LIST: Optional[List[str]] = None
+
+    @field_validator("CLICKHOUSE_CLUSTER_DSN_LIST", mode="before")
+    def optimize_clickhouse_dsn_list_for_region(cls, v: Optional[List[str]], info: ValidationInfo) -> List[str]:
+        """
+        Sorts ClickHouse DSN list to prioritize region-specific nodes.
+        If APP_REGION is defined, DSNs containing -${APP_REGION} in hostname will be placed first.
+        """
+        # If no DSN list provided, default to a list with just the main DSN
+        if not v:
+            return [info.data["CLICKHOUSE_DSN"]]
+            
+        # If APP_REGION isn't set, return the original list
+        app_region = info.data.get("APP_REGION")
+        if not app_region:
+            return v
+            
+        try:
+            # Parse each DSN to check for region in hostname
+            region_dsns = []
+            other_dsns = []
+            
+            for dsn in v:
+                # Skip empty DSNs
+                if not dsn or not isinstance(dsn, str):
+                    continue
+                    
+                # Parse the DSN
+                parsed = urlparse(dsn)
+                
+                # Check if hostname contains region
+                if f"-{app_region}" in parsed.netloc.lower():
+                    region_dsns.append(dsn)
+                else:
+                    other_dsns.append(dsn)
+                    
+            # Return region-specific DSNs first, followed by others
+            return region_dsns + other_dsns
+            
+        except Exception:
+            # If parsing failed, return the original list
+            return v
 
     SMTP_TLS: bool = True
     SMTP_PORT: Optional[int] = None
@@ -88,7 +189,7 @@ class StufioSettings(BaseStufioSettings):
     EMAIL_TEST_USER: EmailStr = "test@example.com"  # type: ignore
     FIRST_SUPERUSER: EmailStr
     FIRST_SUPERUSER_PASSWORD: str
-    
+
     USERS_OPEN_REGISTRATION: bool = True
 
     # MODULES SETTINGS
@@ -108,10 +209,10 @@ class StufioSettings(BaseStufioSettings):
     API_SECRET: str = secrets.token_urlsafe(32)
     API_INTERNAL_CLIENTS: List[str] = ["stufio-admin", "stufio-cron"]
     API_CLIENT_VALIDATION: bool = True
-    
+
     # Add a setting for internal endpoints prefix
     API_INTERNAL_STR: str = "/internal"
-    
+
     # Validator to handle API_INTERNAL_CLIENTS as comma-separated string
     @field_validator("API_INTERNAL_CLIENTS", mode="before")
     def assemble_api_clients(cls, v: Union[str, List[str]]) -> List[str]:

@@ -1,6 +1,9 @@
 import asyncio
+from calendar import c
+import random
 from typing import Optional
 from venv import logger
+from aiokafka import cluster
 from stufio.core.config import get_settings
 
 import clickhouse_connect
@@ -33,24 +36,39 @@ class _ClickhouseClientSingleton:
     @classmethod
     async def get_instance(cls):
         if not cls._instance:
-            try:
-                logger.info(
-                    f"Connecting to Clickhouse at {settings.CLICKHOUSE_DSN}"
-                )
-                clickhouse_client = await clickhouse_connect.get_async_client(
-                    dsn=settings.CLICKHOUSE_DSN,
-                    client_name=f"stufio.fastapi",
-                )
-                await clickhouse_client.ping()
-                
-                cls._instance = cls()
-                cls._instance.clickhouse_client = clickhouse_client
-            except ClickHouseError as e:
-                cls._instance = None
-                raise ClickhouseConnectionError(
-                    f"Failed to connect to Clickhouse: {str(e)}"
-                )
-                
+            ALL_HOSTS = settings.CLICKHOUSE_CLUSTER_DSN_LIST
+
+            if not ALL_HOSTS:
+                raise ValueError("No Clickhouse DSN provided")
+
+            for host in ALL_HOSTS:
+                try:
+                    parsed = urlparse(host)
+                    if parsed.scheme not in ['clickhouse', 'clickhousedb', 'http', 'https', 'clickhouse+http', 'clickhouse+https']:
+                        raise ValueError(f"Invalid Clickhouse DSN: {host}")
+                    if not parsed.path or parsed.path == "/":
+                        raise ValueError(f"Missing database name in DSN: {host}")
+                except Exception as e:
+                    logger.error(f"Invalid Clickhouse DSN: {host}, Error: {str(e)}")
+                    continue
+                try:
+                    logger.info(
+                        f"Connecting to Clickhouse at {settings.CLICKHOUSE_DSN}"
+                    )
+                    clickhouse_client = await clickhouse_connect.get_async_client(
+                        dsn=settings.CLICKHOUSE_DSN,
+                        client_name=f"stufio.fastapi",
+                    )
+                    await clickhouse_client.ping()
+
+                    cls._instance = cls()
+                    cls._instance.clickhouse_client = clickhouse_client
+                except ClickHouseError as e:
+                    cls._instance = None
+                    raise ClickhouseConnectionError(
+                        f"Failed to connect to Clickhouse: {str(e)}"
+                    )
+
         return cls._instance
 
 
