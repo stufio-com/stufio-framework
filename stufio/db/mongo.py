@@ -8,8 +8,10 @@ from motor import core
 from odmantic import AIOEngine
 from pymongo.driver_info import DriverInfo
 from datetime import datetime
+import logging
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 DRIVER_INFO = DriverInfo(name="stufio-fastapi-mongodb", version=__version__)
 
@@ -64,6 +66,7 @@ def serialize_mongo_doc(doc: dict) -> dict:
 class _MongoClientSingleton:
     mongo_client: Optional[Any] = None
     engine: AIOEngine
+    _collections_wrapped = False
 
     def __new__(cls):
         if not hasattr(cls, "instance"):
@@ -72,7 +75,41 @@ class _MongoClientSingleton:
                 settings.MONGO_DATABASE_URI, driver=DRIVER_INFO
             )
             cls.instance.engine = AIOEngine(client=cls.instance.mongo_client, database=settings.MONGO_DATABASE)
+            
+            # Apply metrics tracking if enabled in settings
+            if getattr(settings, "DB_METRICS_ENABLE", False):
+                cls._apply_metrics(cls.instance)
+                
         return cls.instance
+    
+    @classmethod
+    def _apply_metrics(cls, instance):
+        """Apply metrics tracking to MongoDB operations"""
+        if cls._collections_wrapped:
+            return
+            
+        try:
+            # Import metrics from core
+            from stufio.db.metrics import track_mongo_operation
+            
+            # Wrap AIOEngine methods
+            original_find_one = instance.engine.find_one
+            original_find_many = instance.engine.find
+            original_save = instance.engine.save
+            original_save_all = instance.engine.save_all
+            original_delete = instance.engine.delete
+            
+            # Apply metrics tracking
+            instance.engine.find_one = track_mongo_operation(original_find_one)
+            instance.engine.find = track_mongo_operation(original_find_many)
+            instance.engine.save = track_mongo_operation(original_save)
+            instance.engine.save_all = track_mongo_operation(original_save_all)
+            instance.engine.delete = track_mongo_operation(original_delete)
+            
+            logger.debug("MongoDB engine methods wrapped with metrics tracking")
+            cls._collections_wrapped = True
+        except ImportError:
+            logger.debug("Metrics module not available, skipping MongoDB metrics tracking")
 
 
 def MongoDatabase() -> core.AgnosticDatabase:

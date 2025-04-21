@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from stufio.api.endpoints import (
+from . import (
     internal_settings,
     login,
     users,
@@ -8,7 +8,8 @@ from stufio.api.endpoints import (
     admin_settings
     # proxy,
 )
-from stufio.api.admin import admin_router, internal_router
+from ..admin import admin_router, internal_router
+from ...core.config import get_settings
 
 api_router = APIRouter()
 
@@ -28,3 +29,20 @@ admin_router.include_router(
 internal_router.include_router(
     internal_settings.router, prefix="/settings", tags=["settings"]
 )
+
+
+"""
+Register database metrics API endpoints with the main FastAPI application.
+
+Args:
+    app: The FastAPI application instance
+    prefix: Optional API prefix to use (defaults to settings.API_ADMIN_STR)
+"""
+
+settings = get_settings()
+# If metrics are enabled, include the routes
+if getattr(settings, "DB_METRICS_ENABLE", False):
+    from .admin_metrics import router as metrics_router
+    admin_router.include_router(
+        metrics_router, prefix="/metrics", tags=["metrics", "admin"]
+    )

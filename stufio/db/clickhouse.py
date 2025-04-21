@@ -11,8 +11,11 @@ from clickhouse_connect.driver.asyncclient import AsyncClient
 from clickhouse_connect.driver.exceptions import ClickHouseError
 
 from urllib.parse import urlparse
+import logging
+import functools
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 def get_database_from_dsn(dsn: str = settings.CLICKHOUSE_DSN) -> str:
     """Extract database name from Clickhouse DSN"""
@@ -55,10 +58,30 @@ class _ClickhouseClientSingleton:
                     logger.info(
                         f"Connecting to Clickhouse at {settings.CLICKHOUSE_DSN}"
                     )
+                    
+                    # Create the client
                     clickhouse_client = await clickhouse_connect.get_async_client(
                         dsn=settings.CLICKHOUSE_DSN,
                         client_name=f"stufio.fastapi",
                     )
+                    
+                    # Wrap the client methods with metrics decorators if metrics enabled
+                    if getattr(settings, "DB_METRICS_ENABLE", False):
+                        try:
+                            from stufio.db.metrics import track_clickhouse_query
+                            
+                            # Wrap query method with metrics tracking
+                            original_query = clickhouse_client.query
+                            clickhouse_client.query = track_clickhouse_query(original_query)
+                            
+                            # Wrap insert method with metrics tracking
+                            original_insert = clickhouse_client.insert
+                            clickhouse_client.insert = track_clickhouse_query(original_insert)
+                            
+                            logger.debug("ClickHouse client methods wrapped with metrics tracking")
+                        except ImportError:
+                            logger.debug("Metrics module not available, skipping ClickHouse metrics tracking")
+                    
                     await clickhouse_client.ping()
 
                     cls._instance = cls()

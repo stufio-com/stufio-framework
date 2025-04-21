@@ -3,8 +3,10 @@ from typing import Optional, Any, Union, List, Dict, Callable
 import inspect
 from functools import wraps
 from stufio.core.config import get_settings
+import logging
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 class RedisConnectionError(Exception):
     """Raised when Redis connection fails"""
@@ -69,8 +71,22 @@ class PrefixedRedisClient:
             elif name == 'scan_iter':
                 if 'match' in kwargs and kwargs['match'] is not None:
                     kwargs['match'] = self._prefix_key(kwargs['match'])
+
+            # Apply metrics tracking when metrics are enabled
+            if getattr(settings, "DB_METRICS_ENABLE", False):
+                try:
+                    # Import lazily to avoid circular imports
+                    from stufio.db.metrics import track_db_operation
                     
-            return await attr(*args, **kwargs)
+                    # Use context manager to track operation
+                    async with track_db_operation("redis", name):
+                        return await attr(*args, **kwargs)
+                except ImportError:
+                    # If metrics module isn't available, just run the operation
+                    return await attr(*args, **kwargs)
+            else:
+                # If metrics are disabled, just run the operation
+                return await attr(*args, **kwargs)
             
         return wrapped
 

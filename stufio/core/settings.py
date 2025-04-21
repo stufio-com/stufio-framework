@@ -1,6 +1,6 @@
 from typing import Any, Dict, ClassVar, Type, Optional
 from pydantic import ConfigDict, Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings
 
 
 class ModuleSettings(BaseSettings):

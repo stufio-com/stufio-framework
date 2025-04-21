@@ -1,10 +1,9 @@
 import os
 import secrets
-from typing import Any, Dict, List, Optional, Union, ClassVar, Type
-from pydantic import AnyHttpUrl, ConfigDict, EmailStr, HttpUrl, field_validator, create_model
+from typing import Any, Dict, List, Optional, Union
+from pydantic import AnyHttpUrl, ConfigDict, EmailStr, HttpUrl, field_validator
 from pydantic_core.core_schema import ValidationInfo
-from pydantic_settings import BaseSettings
-from .settings import BaseStufioSettings, ModuleSettings
+from .settings import BaseStufioSettings
 from .setting_registry import SettingMetadata, GroupMetadata, SubgroupMetadata, SettingType, settings_registry
 from urllib.parse import urlparse  # Add this import at the top
 
@@ -55,6 +54,10 @@ class StufioSettings(BaseStufioSettings):
     APP_REGION: str = ""
 
     MULTI_MAX: int = 20
+    
+    # Database metrics settings
+    DB_METRICS_ENABLE: bool = True
+    DB_METRICS_REPORT_INTERVAL_SECONDS: int = 300  # Report every 5 minutes
 
     # MONGO DB SETTINGS
     MONGO_DATABASE: str
@@ -251,9 +254,15 @@ settings_registry.register_group(
 settings_registry.register_group(
     GroupMetadata(id="api", label="API Settings", order=50)
 )
+settings_registry.register_group(
+    GroupMetadata(id="database", label="Database Settings", order=60)
+)
 
 settings_registry.register_subgroup(
     SubgroupMetadata(id="debugging", group_id="api", label="Debugging", order=200),
+)
+settings_registry.register_subgroup(
+    SubgroupMetadata(id="metrics", group_id="database", label="Metrics", order=100),
 )
 
 settings_registry.register_setting(
@@ -279,5 +288,32 @@ settings_registry.register_setting(
         type=SettingType.BOOLEAN,
         component="switch",
         order=20
+    )
+)
+
+settings_registry.register_setting(
+    SettingMetadata(
+        key="DB_METRICS_ENABLE",
+        label="Enable Database Metrics",
+        description="Enable collection and reporting of database performance metrics",
+        group="database",
+        subgroup="metrics",
+        type=SettingType.BOOLEAN,
+        component="switch",
+        order=10
+    )
+)
+
+settings_registry.register_setting(
+    SettingMetadata(
+        key="DB_METRICS_REPORT_INTERVAL_SECONDS",
+        label="Metrics Reporting Interval",
+        description="How often (in seconds) to report database metrics in logs",
+        group="database",
+        subgroup="metrics", 
+        type=SettingType.NUMBER,
+        component="number",
+        order=20,
+        props={"min": 60, "max": 3600}
     )
 )
