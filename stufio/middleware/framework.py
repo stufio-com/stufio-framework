@@ -1,7 +1,6 @@
 from typing import List
 from stufio.core.config import get_settings
 from starlette.middleware.cors import CORSMiddleware
-from .admin_auth_middleware import AdminAuthMiddleware
 
 def get_framework_middlewares() -> List[tuple]:
     """
