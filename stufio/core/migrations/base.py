@@ -17,48 +17,48 @@ DB = TypeVar('DB')
 
 class MigrationScript(ABC, Generic[DB]):
     """Base abstract class for all migration scripts"""
-    
+
     # Migration metadata
     name: str
     description: str = ""
     migration_type: Literal["init", "schema", "data"] = "schema"
     order: int = 100  # Lower numbers run first
     version: Optional[str] = None  # Filled by migration runner
-    
+
     @abstractmethod
     async def run(self, db: DB) -> None:
         """Execute the migration script"""
         pass
-    
+
     def get_checksum(self) -> str:
         """Generate a checksum for this migration script"""
         # Get the source code of the run method
         source = inspect.getsource(self.run)
         return hashlib.md5(source.encode()).hexdigest()
-    
+
     @property
     @abstractmethod
     def database_type(self) -> str:
         """Return the type of database this migration is for"""
         pass
-    
+
     async def execute(self, db: DB, module: str, version: str) -> Migration:
         """Execute and record the migration"""
         start_time = time.time()
         error = None
         success = True
-        
+
         try:
             await self.run(db)
         except Exception as e:
             error = str(e)
             success = False
-            logger.error(f"Migration '{self.name}' failed: {error}")
+            logger.error(f"❌ Migration '{self.name}' failed: {error}")
             raise e
         finally:
             end_time = time.time()
             execution_time_ms = (end_time - start_time) * 1000
-            
+
             # Create migration record
             migration = Migration(
                 module=module,
@@ -74,7 +74,7 @@ class MigrationScript(ABC, Generic[DB]):
                 description=self.description,
                 checksum=self.get_checksum()
             )
-            
+
             return migration
 
 

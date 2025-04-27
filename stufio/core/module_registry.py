@@ -49,7 +49,7 @@ class ModuleRegistry:
         Returns a list of module names.
         """
         settings = get_settings()
-        
+
         # Configure the module discoverer
         discoverer = ModuleDiscoverer(
             # Handle MODULES_DIR, which can be a string or list
@@ -63,51 +63,53 @@ class ModuleRegistry:
             # Include any explicit modules from settings
             explicit_modules=getattr(settings, "ADDITIONAL_MODULES", [])
         )
-        
+
         # Perform discovery using the discoverer
         self.module_infos = discoverer.discover()
         logger.info(f"Discovered {len(self.module_infos)} modules")
-        
+
         # Return list of discovered module names
         discovered_modules = list(self.module_infos.keys())
-        
+
         if discovered_modules:
             logger.info(f"Discovered modules: {', '.join(discovered_modules)}")
         else:
             logger.warning("No modules found")
-            
+
         return discovered_modules
 
     def load_module(self, module_name: str, discover_migrations: bool = False) -> Optional["ModuleInterface"]:
         """Load a module by name and return its ModuleInterface implementation."""
         try:
             logger.debug(f"Loading module: {module_name}")
-            
+
             # Get ModuleInfo for this module
             if module_name not in self.module_infos:
                 logger.error(f"Module info for {module_name} not found. Did you run discover_modules first?")
                 return None
-                
+
             module_info = self.module_infos[module_name]
-            
+
             # Get module directory using ModuleInfo method
             module_dir = module_info.get_filesystem_path()
             if not module_dir:
                 logger.error(f"Could not determine directory for module {module_name}")
                 return None
-            
+
             # Get module using ModuleInfo
             try:
                 module = module_info.get_module()
             except Exception as e:
-                logger.error(f"Failed to import module {module_name} from {module_info.path}: {e}")
+                logger.error(
+                    f"❌ Failed to import module {module_name} from {module_info.path}: {e}"
+                )
                 return None
 
             # Get module version
             version = getattr(module, "version", "0.0.0")
             if hasattr(module, "version") and isinstance(module.version, str):
                 version = module.version
-                
+
             # Discover migrations if requested
             if discover_migrations:
                 migration_manager.discover_module_migrations(
@@ -116,7 +118,7 @@ class ModuleRegistry:
                     module_version=version,
                     module_import_path=module_info.path
                 )
-                
+
             # Find ModuleInterface implementation
             logger.debug(f"Looking for ModuleInterface implementation in {module_name}")
             for name, obj in inspect.getmembers(module):
@@ -125,16 +127,16 @@ class ModuleRegistry:
                     instance = obj(module_info=module_info)
                     instance.name = module_name
                     instance.version = version
-                    
+
                     self.modules[module_name] = instance
                     logger.info(f"Successfully loaded module: {module_name} (v{version})")
                     return instance
-                    
+
             logger.warning(f"Module {module_name} does not implement ModuleInterface")
             return None
-            
+
         except Exception as e:
-            logger.error(f"Failed to load module {module_name}: {str(e)}")
+            logger.error(f"❌ Failed to load module {module_name}: {str(e)}")
             traceback.print_exc()
             return None
 
@@ -211,7 +213,7 @@ class ModuleRegistry:
         if module_name not in self.module_infos:
             logger.error(f"Module '{module_name}' not found in registry")
             return None
-            
+
         return self.module_infos[module_name].get_submodule(submodule_path)
 
 
@@ -240,27 +242,27 @@ class ModuleInfo:
                 self._module = importlib.import_module(self.path)
                 logger.debug(f"Successfully imported module: {self.path}")
             except ImportError as e:
-                logger.error(f"Failed to import module {self.path}: {e}")
+                logger.error(f"❌ Failed to import module {self.path}: {e}")
                 raise  # Re-raise to signal failure during loading
             except Exception as e:
                 logger.error(
-                    f"An unexpected error occurred importing module {self.path}: {e}"
+                    f"❌ An unexpected error occurred importing module {self.path}: {e}"
                 )
                 raise
-            
+
         return self._module
-    
+
     def get_filesystem_path(self) -> Optional[str]:
         """Get the filesystem directory path for this module."""
         if self.spec and self.spec.origin:
             return os.path.dirname(self.spec.origin)
         return None
-        
+
     def get_import_path(self) -> str:
         """Get the import path for this module."""
         return self.path
-        
-    def get_submodule(self, submodule_path: str):
+
+    def get_submodule(self, submodule_path: str, critical: bool = False):
         """Loads and returns a submodule of this module.
         
         Args:
@@ -272,19 +274,31 @@ class ModuleInfo:
         if not self.path:
             logger.error(f"Cannot load submodule '{submodule_path}': parent module path is not set")
             return None
-            
+
         full_path = f"{self.path}.{submodule_path}"
         try:
             submodule = importlib.import_module(full_path)
             logger.debug(f"Successfully imported submodule: {full_path}")
             return submodule
         except ImportError as e:
-            logger.error(f"Failed to import submodule {full_path}: {e}")
+            if critical:
+                logger.error(f"❌ Failed to import critical submodule {full_path}: {e}")
+                raise
+            logger.warning(f"Warning: Failed to import submodule {full_path}: {e}")
+            return None
+        except ModuleNotFoundError as e:
+            # Handle specific case where the submodule is not found
+            if critical:
+                logger.error(f"❌ Critical submodule {full_path} not found: {e}")
+                raise
+            logger.debug(f"Failed to import submodule {full_path}: {e}")
             return None
         except Exception as e:
-            logger.error(f"An unexpected error occurred importing submodule {full_path}: {e}")
+            logger.error(
+                f"❌ An unexpected error occurred importing submodule {full_path}: {e}"
+            )
             return None
-        
+
     def __repr__(self):
         return f"ModuleInfo(name='{self.name}', path='{self.path}', source='{self.source}')"
 
@@ -621,7 +635,7 @@ class ModuleInterface:
             The imported submodule or None if not found
         """
         if not self._module_info:
-            logger.error(f"Cannot load submodule '{submodule_path}' for module '{self.name}': no module info available")
+            logger.warning(f"Cannot load submodule '{submodule_path}' for module '{self.name}': no module info available")
             return None
             
         return self._module_info.get_submodule(submodule_path)
