@@ -4,6 +4,7 @@ import inspect
 from functools import wraps
 from stufio.core.config import get_settings
 import logging
+import asyncio
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -19,6 +20,27 @@ class PrefixedRedisClient:
     def __init__(self, client: redis.Redis, prefix: str):
         self._client = client
         self._prefix = prefix
+        
+        # Apply metrics tracking if enabled
+        if getattr(settings, "DB_METRICS_ENABLE", False):
+            try:
+                from stufio.db.metrics import track_redis_operation
+                # List of methods to wrap with metrics tracking
+                for method_name in dir(self._client):
+                    # Skip private methods and non-callable attributes
+                    if method_name.startswith('_') or not callable(getattr(self._client, method_name)):
+                        continue
+                    
+                    # Only wrap coroutine functions
+                    method = getattr(self._client, method_name)
+                    if asyncio.iscoroutinefunction(method):
+                        setattr(self._client, method_name, track_redis_operation(method))
+                
+                logger.debug("Redis client methods wrapped with metrics tracking")
+            except ImportError:
+                logger.debug("Metrics module not available, skipping Redis metrics tracking")
+            except Exception as e:
+                logger.error(f"Error setting up Redis metrics tracking: {e}")
         
     def _prefix_key(self, key: str) -> str:
         """Add prefix to a key if not already prefixed"""
@@ -72,21 +94,8 @@ class PrefixedRedisClient:
                 if 'match' in kwargs and kwargs['match'] is not None:
                     kwargs['match'] = self._prefix_key(kwargs['match'])
 
-            # Apply metrics tracking when metrics are enabled
-            if getattr(settings, "DB_METRICS_ENABLE", False):
-                try:
-                    # Import lazily to avoid circular imports
-                    from stufio.db.metrics import track_db_operation
-                    
-                    # Use context manager to track operation
-                    async with track_db_operation("redis", name):
-                        return await attr(*args, **kwargs)
-                except ImportError:
-                    # If metrics module isn't available, just run the operation
-                    return await attr(*args, **kwargs)
-            else:
-                # If metrics are disabled, just run the operation
-                return await attr(*args, **kwargs)
+            # Execute the Redis command
+            return await attr(*args, **kwargs)
             
         return wrapped
 

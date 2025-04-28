@@ -89,27 +89,33 @@ class _MongoClientSingleton:
             return
             
         try:
-            # Import metrics from core
+            # Import metrics module with new provider-based tracking
             from stufio.db.metrics import track_mongo_operation
             
             # Wrap AIOEngine methods
             original_find_one = instance.engine.find_one
-            original_find_many = instance.engine.find
+            original_find = instance.engine.find
             original_save = instance.engine.save
             original_save_all = instance.engine.save_all
             original_delete = instance.engine.delete
+            original_remove = instance.engine.remove
+            original_count = instance.engine.count
             
             # Apply metrics tracking
             instance.engine.find_one = track_mongo_operation(original_find_one)
-            instance.engine.find = track_mongo_operation(original_find_many)
+            instance.engine.find = track_mongo_operation(original_find)
             instance.engine.save = track_mongo_operation(original_save)
             instance.engine.save_all = track_mongo_operation(original_save_all)
             instance.engine.delete = track_mongo_operation(original_delete)
+            instance.engine.remove = track_mongo_operation(original_remove) 
+            instance.engine.count = track_mongo_operation(original_count)
             
             logger.debug("MongoDB engine methods wrapped with metrics tracking")
             cls._collections_wrapped = True
         except ImportError:
             logger.debug("Metrics module not available, skipping MongoDB metrics tracking")
+        except Exception as e:
+            logger.error(f"Error setting up MongoDB metrics tracking: {e}")
 
 
 def MongoDatabase() -> core.AgnosticDatabase:

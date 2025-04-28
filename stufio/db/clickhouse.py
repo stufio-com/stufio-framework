@@ -1,9 +1,7 @@
 import asyncio
-from calendar import c
 import random
 from typing import Optional
-from venv import logger
-from aiokafka import cluster
+import logging
 from stufio.core.config import get_settings
 
 import clickhouse_connect
@@ -11,8 +9,6 @@ from clickhouse_connect.driver.asyncclient import AsyncClient
 from clickhouse_connect.driver.exceptions import ClickHouseError
 
 from urllib.parse import urlparse
-import logging
-import functools
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -70,13 +66,21 @@ class _ClickhouseClientSingleton:
                         try:
                             from stufio.db.metrics import track_clickhouse_query
                             
-                            # Wrap query method with metrics tracking
+                            # Store original methods
                             original_query = clickhouse_client.query
-                            clickhouse_client.query = track_clickhouse_query(original_query)
-                            
-                            # Wrap insert method with metrics tracking
                             original_insert = clickhouse_client.insert
+                            original_query_column_block_stream = clickhouse_client.query_column_block_stream
+                            original_query_row_block_stream = clickhouse_client.query_row_block_stream
+                            original_query_rows_stream = clickhouse_client.query_rows_stream
+                            original_raw_query = clickhouse_client.raw_query
+                            
+                            # Apply metrics tracking to all query methods
+                            clickhouse_client.query = track_clickhouse_query(original_query)
                             clickhouse_client.insert = track_clickhouse_query(original_insert)
+                            clickhouse_client.query_column_block_stream = track_clickhouse_query(original_query_column_block_stream)
+                            clickhouse_client.query_row_block_stream = track_clickhouse_query(original_query_row_block_stream)
+                            clickhouse_client.query_rows_stream = track_clickhouse_query(original_query_rows_stream)
+                            clickhouse_client.raw_query = track_clickhouse_query(original_raw_query)
                             
                             logger.debug("ClickHouse client methods wrapped with metrics tracking")
                         except ImportError:
@@ -118,4 +122,4 @@ async def ping(retries: int = 3) -> bool:
     return False
 
 
-__all__ = ["ClickhouseDatabase", "ping", "ClickhouseConnectionError"]
+__all__ = ["ClickhouseDatabase", "ping", "ClickhouseConnectionError", "get_database_from_dsn"]
