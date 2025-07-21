@@ -1,5 +1,6 @@
 from typing import Any, Dict, Generic, Optional, Type, TypeVar, Union, List, Callable
 from fastapi.encoders import jsonable_encoder
+from httpx import get
 from pydantic import BaseModel
 from odmantic import AIOEngine, Model, ObjectId
 from stufio.db.mongo_base import MongoBase
@@ -36,7 +37,7 @@ class CRUDMongo(BaseCRUD[ModelType, CreateSchemaType, UpdateSchemaType]):
         """Get an object by ID"""
         primary_field_name = None
         for name, field in self.model.__odm_fields__.items():
-            if hasattr(field, "primary_field") and field.primary_field:
+            if hasattr(field, "primary_field") and getattr(field, "primary_field", False):
                 primary_field_name = name
                 break
 

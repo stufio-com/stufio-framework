@@ -39,9 +39,9 @@ class ClickhouseBase(BaseModel):
         """Get fully qualified Clickhouse table name (with database)"""
         if (
             hasattr(cls.model_config, "table_name")
-            and "." in cls.model_config.table_name
+            and "." in getattr(cls.model_config, "table_name", "")
         ):
-            return cls.model_config.table_name
+            return getattr(cls.model_config, "table_name", "")
 
         return f"{cls.get_database_name()}.{cls.get_table_short_name()}"
 
