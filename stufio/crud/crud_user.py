@@ -20,18 +20,18 @@ class CRUDUser(CRUDMongo[User, UserCreate, UserUpdate]):
 
         return await super().create(User(**user))
 
-    async def update(self, db_obj: User, obj_in: Union[UserUpdate, Dict[str, Any]]) -> User:
-        if isinstance(obj_in, dict):
-            update_data = obj_in
+    async def update(self, db_obj: User, update_data: Union[UserUpdate, Dict[str, Any]]) -> User:
+        if isinstance(update_data, dict):
+            update_dict = update_data
         else:
-            update_data = obj_in.model_dump(exclude_unset=True)
-        if update_data.get("password"):
-            hashed_password = get_password_hash(update_data["password"])
-            del update_data["password"]
-            update_data["hashed_password"] = hashed_password
-        if update_data.get("email") and db_obj.email != update_data["email"]:
-            update_data["email_validated"] = False
-        return await super().update(db_obj=db_obj, obj_in=update_data)
+            update_dict = update_data.model_dump(exclude_unset=True)
+        if update_dict.get("password"):
+            hashed_password = get_password_hash(update_dict["password"])
+            del update_dict["password"]
+            update_dict["hashed_password"] = hashed_password
+        if update_dict.get("email") and db_obj.email != update_dict["email"]:
+            update_dict["email_validated"] = False
+        return await super().update(db_obj=db_obj, update_data=update_dict)
 
     async def authenticate(self, email: str, password: str) -> Optional[User]:
         user = await self.get_by_email(email=email)
@@ -42,42 +42,46 @@ class CRUDUser(CRUDMongo[User, UserCreate, UserUpdate]):
         return user
 
     async def validate_email(self, db_obj: User) -> User:
-        obj_in = UserUpdate(**UserInDB.model_validate(db_obj).model_dump())
-        obj_in.email_validated = True
-        return await self.update(db_obj=db_obj, obj_in=obj_in)
+        update_data = UserUpdate(**UserInDB.model_validate(db_obj).model_dump())
+        update_data.email_validated = True
+        return await self.update(db_obj=db_obj, update_data=update_data)
 
     async def activate_totp(self, db_obj: User, totp_in: NewTOTP) -> User:
-        obj_in = UserUpdate(**UserInDB.model_validate(db_obj).model_dump())
-        obj_in = obj_in.model_dump(exclude_unset=True)
-        obj_in["totp_secret"] = totp_in.secret
-        return await self.update(db_obj=db_obj, obj_in=obj_in)
+        update_obj = UserUpdate(**UserInDB.model_validate(db_obj).model_dump())
+        update_data = update_obj.model_dump(exclude_unset=True)
+        update_data["totp_secret"] = totp_in.secret
+        return await self.update(db_obj=db_obj, update_data=update_data)
 
     async def deactivate_totp(self, db_obj: User) -> User:
-        obj_in = UserUpdate(**UserInDB.model_validate(db_obj).model_dump())
-        obj_in = obj_in.model_dump(exclude_unset=True)
-        obj_in["totp_secret"] = None
-        obj_in["totp_counter"] = None
-        return await self.update(db_obj=db_obj, obj_in=obj_in)
+        update_obj = UserUpdate(**UserInDB.model_validate(db_obj).model_dump())
+        update_data = update_obj.model_dump(exclude_unset=True)
+        update_data["totp_secret"] = None
+        update_data["totp_counter"] = None
+        return await self.update(db_obj=db_obj, update_data=update_data)
 
     async def update_totp_counter(self, db_obj: User, new_counter: int) -> User:
-        obj_in = UserUpdate(**UserInDB.model_validate(db_obj).model_dump())
-        obj_in = obj_in.model_dump(exclude_unset=True)
-        obj_in["totp_counter"] = new_counter
-        return await self.update(db_obj=db_obj, obj_in=obj_in)
+        update_obj = UserUpdate(**UserInDB.model_validate(db_obj).model_dump())
+        update_data = update_obj.model_dump(exclude_unset=True)
+        update_data["totp_counter"] = new_counter
+        return await self.update(db_obj=db_obj, update_data=update_data)
 
     async def increment_email_verification_counter(
         self, db_obj: User, inc_counter: int = 1
     ) -> User:
-        obj_in = UserUpdate(**UserInDB.model_validate(db_obj).model_dump())
-        obj_in = obj_in.model_dump(exclude_unset=True)
-        obj_in["email_tokens_cnt"] = obj_in.get("email_tokens_cnt", 0) + inc_counter
-        return await self.update(db_obj=db_obj, obj_in=obj_in)
+        update_obj = UserUpdate(**UserInDB.model_validate(db_obj).model_dump())
+        update_data = update_obj.model_dump(exclude_unset=True)
+        update_data["email_tokens_cnt"] = update_data.get("email_tokens_cnt", 0) + inc_counter
+        return await self.update(db_obj=db_obj, update_data=update_data)
 
-    async def toggle_user_state(self, obj_in: Union[UserUpdate, Dict[str, Any]]) -> User:
-        db_obj = await self.get_by_email(email=obj_in.email)
-        if not db_obj:
-            return None
-        return await self.update(db_obj=db_obj, obj_in=obj_in)
+    async def toggle_user_state(
+        self, db_obj: User, is_active: bool | None = None
+    ) -> User:
+        update_obj = UserUpdate(**UserInDB.model_validate(db_obj).model_dump())
+        if is_active is None:
+            is_active = not update_obj.is_active
+        update_data = update_obj.model_dump(exclude_unset=True)
+        update_data["is_active"] = is_active
+        return await self.update(db_obj=db_obj, update_data=update_data)
 
     def has_password(self, user: User) -> bool:
         if user.hashed_password:

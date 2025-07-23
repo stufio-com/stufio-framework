@@ -97,7 +97,7 @@ async def test_update_user() -> None:
     user = await crud.user.create(obj_in=user_in)
     new_password = random_lower_string()
     user_in_update = UserUpdate(password=new_password, is_superuser=True)
-    await crud.user.update(db_obj=user, obj_in=user_in_update)
+    await crud.user.update(db_obj=user, update_data=user_in_update)
     user_2 = await crud.user.get(user.id)
     assert user_2
     assert user.email == user_2.email

@@ -103,7 +103,7 @@ def send_magic_login_email(email_to: str, token: str, server_host: str = None) -
     )
 
 
-def send_reset_password_email(email_to: str, email: str, token: str) -> None:
+def send_reset_password_email(email_to: str, email: str, token: str, recovery_code: str | None = None) -> None:
     project_name = settings.PROJECT_NAME
     subject = f"{project_name} - Password recovery for user {email}"
     with open(Path(settings.EMAIL_TEMPLATES_DIR) / "reset_password.html") as f:
@@ -118,8 +118,9 @@ def send_reset_password_email(email_to: str, email: str, token: str) -> None:
             "project_name": settings.PROJECT_NAME,
             "username": email,
             "email": email_to,
-            "valid_hours": int(settings.ACCESS_TOKEN_EXPIRE_SECONDS / 60),
+            "valid_hours": int(settings.ACCESS_TOKEN_EXPIRE_SECONDS / 3600),
             "link": link,
+            "recovery_code": recovery_code or "N/A",
         },
     )
 

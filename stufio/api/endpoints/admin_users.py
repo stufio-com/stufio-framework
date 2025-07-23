@@ -32,7 +32,13 @@ async def toggle_state(
     """
     Toggle user state (moderator function)
     """
-    response = await crud.user.toggle_user_state(obj_in=user_in)
+    user = await crud.user.get_by_email(user_in.email)
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found.",
+        )
+    response = await crud.user.toggle_user_state(db_obj=user, is_active=user_in.is_active)
     if not response:
         raise HTTPException(
             status_code=400,
@@ -75,7 +81,7 @@ async def update_user(
             status_code=404,
             detail="User not found.",
         )
-    user = await crud.user.update(db_obj=user, obj_in=user_in)
+    user = await crud.user.update(db_obj=user, update_data=user_in)
     return user
 
 

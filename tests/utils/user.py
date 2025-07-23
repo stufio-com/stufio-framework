@@ -34,6 +34,6 @@ async def authentication_token_from_email(*, client: TestClient, email: str) -> 
         user = await crud.user.create(obj_in=user_in_create)
     else:
         user_in_update = UserUpdate(password=password)
-        user = await crud.user.update(db_obj=user, obj_in=user_in_update)
+        user = await crud.user.update(db_obj=user, update_data=user_in_update)
 
     return user_authentication_headers(client=client, email=email, password=password)

@@ -75,7 +75,7 @@ async def update_user(
                 detail="This username is not available.",
             )
         user_in.email = obj_in.email
-    user = await crud.user.update(db_obj=current_user, obj_in=user_in)
+    user = await crud.user.update(db_obj=current_user, update_data=user_in)
     return user
 
 

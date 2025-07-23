@@ -74,5 +74,7 @@ class UserInDB(UserInDBBase):
 
 
 class UserUpdatePassword(BaseModel):
-    claim: str
+    claim: Optional[str] = None  # For full token/link method
+    recovery_code: Optional[str] = None  # For 6-digit code method
+    email: Optional[EmailStr] = None  # Required when using recovery_code
     new_password: str
