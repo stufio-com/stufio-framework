@@ -280,8 +280,8 @@ async def resend_validation_email(
 
         if (
             user.email_tokens_cnt >= settings.EMAILS_USER_CONFIRMATION_MAX_EMAILS
-            or not settings.EMAILS_ENABLED
-            or not settings.EMAILS_USER_CONFIRMATION_EMAIL
+            and settings.EMAILS_ENABLED
+            and settings.EMAILS_USER_CONFIRMATION_EMAIL
         ):
             raise HTTPException(
                 status_code=400,
@@ -324,13 +324,9 @@ async def login_with_oauth2(
             status_code=400, detail="Login failed; incorrect email or password"
         )
 
-    if not user.email_validated:
+    if not user.email_validated and settings.EMAILS_ENABLED and settings.EMAILS_USER_CONFIRMATION_EMAIL:
 
-        if (
-            user.email_tokens_cnt >= settings.EMAILS_USER_CONFIRMATION_MAX_EMAILS
-            or not settings.EMAILS_ENABLED
-            or not settings.EMAILS_USER_CONFIRMATION_EMAIL
-        ):
+        if user.email_tokens_cnt >= settings.EMAILS_USER_CONFIRMATION_MAX_EMAILS:
             raise HTTPException(
                 status_code=400,
                 detail="Login failed; too many email validation attempts",
