@@ -4,6 +4,7 @@ from httpx import get
 from pydantic import BaseModel
 from odmantic import AIOEngine, Model, ObjectId
 from stufio.db.mongo_base import MongoBase
+from stufio.db.mongo import serialize_mongo_doc
 from stufio.core.config import get_settings
 from .base import BaseCRUD
 
@@ -144,3 +145,62 @@ class CRUDMongo(BaseCRUD[ModelType, CreateSchemaType, UpdateSchemaType]):
         db = self.engine.client[self.engine.database]
         collection = db[self.model.get_collection_name()]
         return await query_func(collection)
+
+    # Enhanced methods for response serialization
+    def serialize_model(self, model: Optional[ModelType]) -> Optional[Dict[str, Any]]:
+        """
+        Serialize a single ODMantic model with proper ObjectId conversion.
+        
+        Args:
+            model: ODMantic model instance
+            
+        Returns:
+            Serialized dictionary or None
+        """
+        if not model:
+            return None
+        
+        model_dict = model.model_dump()
+        return serialize_mongo_doc(model_dict)
+    
+    def serialize_models(self, models: List[ModelType]) -> List[Dict[str, Any]]:
+        """
+        Serialize a list of ODMantic models with proper ObjectId conversion.
+        
+        Args:
+            models: List of ODMantic model instances
+            
+        Returns:
+            List of serialized dictionaries
+        """
+        result = []
+        for model in models:
+            if model is not None:
+                serialized = self.serialize_model(model)
+                if serialized is not None:
+                    result.append(serialized)
+        return result
+    
+    async def get_serialized(self, id: Union[ObjectId, str]) -> Optional[Dict[str, Any]]:
+        """Get an object by ID and return serialized dict."""
+        model = await self.get(id)
+        return self.serialize_model(model)
+    
+    async def get_multi_serialized(
+        self,
+        *,
+        filters: Optional[Dict[str, Any]] = None,
+        filter_expression: Optional[Any] = None,
+        sort: Optional[Any] = None,
+        skip: int = 0,
+        limit: int = settings.MULTI_MAX,
+    ) -> List[Dict[str, Any]]:
+        """Get multiple objects and return serialized dicts."""
+        models = await self.get_multi(
+            filters=filters,
+            filter_expression=filter_expression,
+            sort=sort,
+            skip=skip,
+            limit=limit
+        )
+        return self.serialize_models(models)
