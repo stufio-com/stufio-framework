@@ -207,6 +207,7 @@ class StufioSettings(BaseStufioSettings):
     # Redis settings
     REDIS_URL: str = "redis://localhost:6379/0"
     REDIS_PREFIX: str = "stufio:"
+    REDIS_CLUSTER_NODES: Optional[str] = None
 
     # Add new API security settings
     API_SECRET: str = secrets.token_urlsafe(32)
