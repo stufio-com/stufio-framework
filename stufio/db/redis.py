@@ -1,4 +1,5 @@
 import redis.asyncio as redis
+from redis.asyncio.cluster import ClusterNode
 from typing import Optional, Any, Union, List, Dict, Callable
 import inspect
 from functools import wraps
@@ -17,7 +18,7 @@ class PrefixedRedisClient:
     """
     Redis client wrapper that automatically prefixes all keys with settings.REDIS_PREFIX
     """
-    def __init__(self, client: redis.Redis, prefix: str):
+    def __init__(self, client: Union[redis.Redis, redis.RedisCluster], prefix: str):
         self._client = client
         self._prefix = prefix
         
@@ -41,7 +42,7 @@ class PrefixedRedisClient:
                 logger.debug("Metrics module not available, skipping Redis metrics tracking")
             except Exception as e:
                 logger.error(f"Error setting up Redis metrics tracking: {e}")
-        
+
     def _prefix_key(self, key: str) -> str:
         """Add prefix to a key if not already prefixed"""
         if key.startswith(self._prefix):
@@ -55,7 +56,7 @@ class PrefixedRedisClient:
     def _prefix_dict(self, mapping: Dict[str, Any]) -> Dict[str, Any]:
         """Add prefix to dictionary keys"""
         return {self._prefix_key(k): v for k, v in mapping.items()}
-    
+
     def __getattr__(self, name):
         """
         Dynamically intercept Redis commands to add prefixing
@@ -96,7 +97,7 @@ class PrefixedRedisClient:
 
             # Execute the Redis command
             return await attr(*args, **kwargs)
-            
+        
         return wrapped
 
 class _RedisClientSingleton:
@@ -107,17 +108,40 @@ class _RedisClientSingleton:
     def __new__(cls):
         if not cls.instance:
             cls.instance = super(_RedisClientSingleton, cls).__new__(cls)
-            raw_client = redis.Redis.from_url(
-                settings.REDIS_URL,
-                decode_responses=True
-            )
+            
+            # Check if we should use Redis Cluster mode
+            redis_cluster_nodes = getattr(settings, 'REDIS_CLUSTER_NODES', None)
+            
+            if redis_cluster_nodes:
+                logger.info(f"Initializing Redis Cluster client with nodes: {redis_cluster_nodes}")
+                try:
+                    # Parse cluster nodes and create startup nodes list
+                    startup_nodes = []
+                    for node in redis_cluster_nodes.split(','):
+                        host, port = node.strip().split(':')
+                        startup_nodes.append(ClusterNode(host, int(port)))
+                    
+                    # Create Redis cluster client
+                    raw_client = redis.RedisCluster(startup_nodes=startup_nodes, decode_responses=True)  # type: ignore
+                    logger.info(f"Redis Cluster client initialized successfully")
+                except Exception as e:
+                    logger.error(f"Failed to create Redis Cluster: {e}. Falling back to single Redis client.")
+                    # Fallback to single Redis client
+                    raw_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
+            else:
+                logger.info("Initializing single Redis client")
+                raw_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
+            
             # Wrap the raw client with our prefixing wrapper
             cls.instance.redis_client = PrefixedRedisClient(raw_client, settings.REDIS_PREFIX)
         return cls.instance
 
 async def RedisClient() -> PrefixedRedisClient:
     """Get Redis client instance with auto-prefixing"""
-    return _RedisClientSingleton().redis_client
+    singleton = _RedisClientSingleton()
+    if singleton.redis_client is None:
+        raise RedisConnectionError("Redis client not initialized")
+    return singleton.redis_client
 
 async def ping(retries: int = 3) -> bool:
     """Ping Redis server with retries"""
