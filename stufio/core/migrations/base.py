@@ -14,6 +14,28 @@ from stufio.models.migration import Migration
 
 logger = logging.getLogger(__name__)
 
+class ClusterAwareAsyncClient:
+    """Wrapper for AsyncClient that automatically transforms SQL for cluster mode"""
+    
+    def __init__(self, original_client: AsyncClient, transform_func, migration_name: str):
+        self._original_client = original_client
+        self._transform_func = transform_func
+        self._migration_name = migration_name
+    
+    async def command(self, sql: str, *args, **kwargs):
+        """Transform SQL for cluster and execute"""
+        transformed_sql = self._transform_func(sql)
+        if transformed_sql != sql:
+            logger.debug(
+                f"Auto-transformed SQL for cluster in migration '{self._migration_name}':\n"
+                f"---\nOriginal:\n{sql}\n---\nTransformed:\n{transformed_sql}\n---"
+            )
+        return await self._original_client.command(transformed_sql, *args, **kwargs)
+    
+    def __getattr__(self, name):
+        """Proxy all other attributes to the original client"""
+        return getattr(self._original_client, name)
+
 # Define database type variables
 DB = TypeVar('DB')
 
@@ -131,141 +153,140 @@ class ClickhouseMigrationScript(MigrationScript[AsyncClient]):
         transformed_statements = []
 
         # Process each SQL statement in the script individually
-        # This is more robust than a single large regex replacement.
         for statement in self._split_sql_statements(sql):
-            original_statement = statement
+            # --- Handle CREATE TABLE with ENGINE ---
+            create_table_pattern = re.compile(
+                r"^(CREATE\s+(?:OR\s+REPLACE\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?)(`?[\w\.]*\.`?)?(`?[\w]+`?)",
+                re.IGNORECASE
+            )
+            create_table_match = create_table_pattern.match(statement)
+            
+            if create_table_match and "ENGINE" in statement.upper():
+                create_prefix = create_table_match.group(1)  # CREATE TABLE IF NOT EXISTS
+                db_name = create_table_match.group(2) or ""  # database. (optional)
+                table_name = create_table_match.group(3)     # table_name
+                
+                # Extract everything after the table name
+                table_end = create_table_match.end()
+                remaining_sql = statement[table_end:]
+                
+                # Find ENGINE clause
+                engine_pattern = re.compile(r"ENGINE\s*=\s*([a-zA-Z0-9_]+)(\([^)]*\))?", re.IGNORECASE)
+                engine_match = engine_pattern.search(remaining_sql)
+                
+                if engine_match:
+                    engine_name = engine_match.group(1)
+                    engine_params = engine_match.group(2) or ""
+                    
+                    # Get everything before and after ENGINE clause
+                    before_engine = remaining_sql[:engine_match.start()]
+                    after_engine = remaining_sql[engine_match.end():]
+                    
+                    # Build transformed CREATE statement with ON CLUSTER
+                    transformed_create = f"{create_prefix} {db_name}{table_name} ON CLUSTER '{cluster_name}'{before_engine}"
+                    
+                    # --- Convert MergeTree to ReplicatedMergeTree ---
+                    if "MergeTree" in engine_name and "Replicated" not in engine_name:
+                        replicated_engine_name = f"Replicated{engine_name}"
+                        
+                        # Clean names for paths
+                        clean_db_name = db_name.strip("`.")
+                        clean_table_name = table_name.strip("`")
+                        
+                        # If no database specified, use default database name
+                        if not clean_db_name:
+                            from stufio.db.clickhouse import get_database_from_dsn
+                            clean_db_name = get_database_from_dsn()
+                        
+                        zookeeper_path = f"'/clickhouse/tables/{{shard}}/{clean_db_name}.{clean_table_name}'"
+                        
+                        # Build replicated engine parameters
+                        if engine_params.strip() in ["", "()"]:
+                            replicated_engine_params = f"({zookeeper_path}, '{{replica}}')"
+                        else:
+                            replicated_engine_params = f"({zookeeper_path}, '{{replica}}', {engine_params.strip('()')})"
+                        
+                        # Complete the statement
+                        transformed_create += f"ENGINE = {replicated_engine_name}{replicated_engine_params}{after_engine}"
+                        
+                        # --- Create Distributed table ---
+                        distributed_table_name = f"`{clean_db_name}`.`{clean_table_name}_distributed`"
+                        local_table_name = f"`{clean_db_name}`.`{clean_table_name}`"
+                        
+                        distributed_create = (
+                            f"CREATE TABLE IF NOT EXISTS {distributed_table_name} ON CLUSTER '{cluster_name}' "
+                            f"AS {local_table_name} "
+                            f"ENGINE = Distributed('{cluster_name}', '{clean_db_name}', '{clean_table_name}', rand())"
+                        )
+                        
+                        # Add both tables
+                        transformed_statements.append(transformed_create)
+                        transformed_statements.append(distributed_create)
+                    else:
+                        # Keep original engine
+                        transformed_create += f"ENGINE = {engine_name}{engine_params}{after_engine}"
+                        transformed_statements.append(transformed_create)
+                        
+                    continue
 
-            # --- 1. Handle CREATE DATABASE ---
-            # Pattern to match CREATE DATABASE statements.
+            # --- Handle CREATE DATABASE ---
             create_db_pattern = re.compile(
-                r"^(CREATE\s+DATABASE(?:_IF_NOT_EXISTS_)?\s+)(`?[\w\.]+`?)",
-                re.IGNORECASE | re.DOTALL,
+                r"^(CREATE\s+DATABASE(?:\s+IF\s+NOT\s+EXISTS)?\s+)(`?[\w\.]+`?)",
+                re.IGNORECASE
             )
             if create_db_pattern.match(statement):
                 statement = create_db_pattern.sub(
                     rf"\1\2 ON CLUSTER '{cluster_name}'", statement
                 )
                 transformed_statements.append(statement)
-                continue  # Move to next statement
-
-            # --- 2. Handle CREATE TABLE, VIEW, MATERIALIZED VIEW ---
-            # This comprehensive pattern handles tables, views, and materialized views.
-            # It also captures the engine definition for tables.
-            create_pattern = re.compile(
-                r"^(CREATE\s+(?:OR\s+REPLACE\s+)?(?:MATERIALIZED\s+VIEW|VIEW|TABLE)\s+(?:IF\s+NOT\s+EXISTS\s+)?)(`?[\w\.]+\.`?)(`?[\w]+`?)(\s*\(.*?\))?(?:\s+ENGINE\s*=\s*([a-zA-Z0-9_]+)(\(.*\)))?",
-                re.IGNORECASE | re.DOTALL,
-            )
-            create_match = create_pattern.match(statement)
-            if create_match:
-                create_prefix = create_match.group(1)  # CREATE TABLE/VIEW...
-                db_name = create_match.group(2)  # `database`.
-                table_name = create_match.group(3)  # `table_name`
-                columns_and_pk = (
-                    create_match.group(4) or ""
-                )  # (id UInt64, ...) ORDER BY ...
-                engine_name = create_match.group(5)
-                engine_params = create_match.group(6)
-
-                # Add ON CLUSTER clause
-                transformed_create = f"{create_prefix} {db_name}{table_name} ON CLUSTER '{cluster_name}'{columns_and_pk}"
-
-                # --- 2a. Convert MergeTree to ReplicatedMergeTree ---
-                if (
-                    engine_name
-                    and "MergeTree" in engine_name
-                    and "Replicated" not in engine_name
-                ):
-                    replicated_engine_name = f"Replicated{engine_name}"
-
-                    # Construct the standard ZooKeeper path for the replicated table.
-                    # ClickHouse will replace {shard} and {replica} macros automatically.
-                    # Assumes `database.table_name` format.
-                    clean_db_name = db_name.strip("`.")
-                    clean_table_name = table_name.strip("`")
-                    zookeeper_path = f"'/clickhouse/tables/{{shard}}/{clean_db_name}.{clean_table_name}'"
-
-                    # Prepend ZK path and replica name to engine params
-                    replicated_engine_params = (
-                        f"({zookeeper_path}, '{{replica}}'{engine_params.lstrip('(')}"
-                    )
-
-                    transformed_create += (
-                        f" ENGINE = {replicated_engine_name}{replicated_engine_params}"
-                    )
-
-                    # --- 2b. Create the corresponding Distributed table ---
-                    # The distributed table acts as a proxy for querying all nodes in the cluster.
-                    distributed_table_name = (
-                        f"`{clean_db_name}`.`{clean_table_name}_distributed`"
-                    )
-                    local_table_name = f"`{clean_db_name}`.`{clean_table_name}`"
-
-                    # Use the same column definition as the local table
-                    distributed_create = (
-                        f"CREATE TABLE IF NOT EXISTS {distributed_table_name} ON CLUSTER '{cluster_name}' "
-                        f"AS {local_table_name} "
-                        f"ENGINE = Distributed('{cluster_name}', '{clean_db_name}', '{clean_table_name}', rand())"
-                    )
-                    transformed_statements.append(distributed_create)
-
-                elif (
-                    engine_name
-                ):  # For other engines (e.g., Null, Memory), just append them back
-                    transformed_create += f" ENGINE = {engine_name}{engine_params}"
-
-                transformed_statements.insert(
-                    0, transformed_create
-                )  # Insert local table create first
                 continue
 
-            # --- 3. Handle DROP statements (TABLE, VIEW, DATABASE) ---
+            # --- Handle DROP statements ---
             drop_pattern = re.compile(
-                r"^(DROP\s+(?:TABLE|VIEW|DATABASE)\s+(?:IF\s+EXISTS\s+)?)(`?[\w\.]+\.`?)(`?[\w]+`?)",
+                r"^(DROP\s+(?:TABLE|VIEW|DATABASE)\s+(?:IF\s+EXISTS\s+)?)(`?[\w\.]*\.`?)?(`?[\w]+`?)",
                 re.IGNORECASE,
             )
             drop_match = drop_pattern.match(statement)
             if drop_match:
                 drop_prefix = drop_match.group(1)
-                db_name = drop_match.group(2)
+                db_name = drop_match.group(2) or ""
                 object_name = drop_match.group(3)
 
                 # Add ON CLUSTER
-                transformed_drop = (
-                    f"{drop_prefix} {db_name}{object_name} ON CLUSTER '{cluster_name}'"
-                )
+                transformed_drop = f"{drop_prefix} {db_name}{object_name} ON CLUSTER '{cluster_name}'"
                 transformed_statements.append(transformed_drop)
 
                 # Also drop the _distributed table if it's a table drop
                 if "TABLE" in drop_prefix.upper():
                     clean_db_name = db_name.strip("`.")
                     clean_object_name = object_name.strip("`")
-                    distributed_table_name = (
-                        f"`{clean_db_name}`.`{clean_object_name}_distributed`"
-                    )
+                    if not clean_db_name:
+                        from stufio.db.clickhouse import get_database_from_dsn
+                        clean_db_name = get_database_from_dsn()
+                    distributed_table_name = f"`{clean_db_name}`.`{clean_object_name}_distributed`"
                     distributed_drop = f"DROP TABLE IF EXISTS {distributed_table_name} ON CLUSTER '{cluster_name}'"
                     transformed_statements.append(distributed_drop)
                 continue
 
-            # --- 4. Handle ALTER TABLE statements ---
+            # --- Handle ALTER TABLE statements ---
             alter_pattern = re.compile(
-                r"^(ALTER\s+TABLE\s+)(`?[\w\.]+\.`?)(`?[\w]+`?)(\s+.*)",
+                r"^(ALTER\s+TABLE\s+)(`?[\w\.]*\.`?)?(`?[\w]+`?)(\s+.*)",
                 re.IGNORECASE | re.DOTALL,
             )
             alter_match = alter_pattern.match(statement)
             if alter_match:
                 alter_prefix = alter_match.group(1)
-                db_name = alter_match.group(2)
+                db_name = alter_match.group(2) or ""
                 table_name = alter_match.group(3)
-                operation = alter_match.group(4)  # ADD COLUMN, etc.
+                operation = alter_match.group(4)
 
                 # Add ON CLUSTER after the table name
                 transformed_alter = f"{alter_prefix} {db_name}{table_name} ON CLUSTER '{cluster_name}'{operation}"
                 transformed_statements.append(transformed_alter)
                 continue
 
-            # If no pattern matched, it's likely an INSERT or other DML, or already transformed.
-            if statement not in transformed_statements:
-                transformed_statements.append(original_statement)
+            # If no pattern matched, keep original
+            transformed_statements.append(statement)
 
         return ";\n".join(stmt for stmt in transformed_statements if stmt)
 
@@ -293,16 +314,18 @@ class ClickhouseMigrationScript(MigrationScript[AsyncClient]):
         success = True
 
         try:
-            # The `execute_sql` method now handles transformation, so we can simplify this.
-            # If the migration script has its own `run` logic that calls `db.command`
-            # directly, the monkey-patching approach is still valid.
-            # However, a cleaner pattern is to have `run` call `self.execute_sql`.
-            await self.run(db)
+            # Create a cluster-aware database wrapper if cluster mode is enabled
+            if self._is_cluster_enabled():
+                db_wrapper = ClusterAwareAsyncClient(db, self._transform_sql_for_cluster, self.name)
+                await self.run(db_wrapper)  # type: ignore
+            else:
+                await self.run(db)
+                
         except Exception as e:
             error = str(e)
             success = False
             logger.error(f"❌ Migration '{self.name}' failed: {error}")
-            raise e
+            raise
         finally:
             end_time = time.time()
             execution_time_ms = (end_time - start_time) * 1000
