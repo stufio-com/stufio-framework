@@ -9,6 +9,7 @@ import re
 
 from motor.core import AgnosticDatabase
 from clickhouse_connect.driver.asyncclient import AsyncClient
+from odmantic import ObjectId
 from stufio.models.migration import Migration
 
 logger = logging.getLogger(__name__)
@@ -62,7 +63,7 @@ class MigrationScript(ABC, Generic[DB]):
 
             # Create migration record
             migration = Migration(
-                id="",  # Will be set when saved to database
+                id=ObjectId(),
                 module=module,
                 version=version,
                 name=self.name,
@@ -307,7 +308,7 @@ class ClickhouseMigrationScript(MigrationScript[AsyncClient]):
             execution_time_ms = (end_time - start_time) * 1000
 
             migration = Migration(
-                id="",
+                id=ObjectId(),
                 module=module,
                 version=version,
                 name=self.name,
