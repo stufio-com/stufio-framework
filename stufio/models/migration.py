@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
-from typing import Optional, Dict, Any, Literal
+from typing import Optional, Dict, Any, Literal, Union
 from odmantic import Field, Index
 from pydantic import ConfigDict
 
@@ -15,7 +15,7 @@ class Migration(MongoBase):
     name: str  # Migration name
     
     # Migration details
-    type: Literal["mongodb", "clickhouse"] = Field(index=True)  # Database type
+    type: Union[Literal["mongodb", "clickhouse"], str] = Field(index=True)  # Database type
     migration_type: Literal["init", "schema", "data"] = Field(default="schema")  # Migration category
     order: int = Field(default=100)  # Execution order within version
     

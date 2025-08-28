@@ -120,6 +120,23 @@ class StufioSettings(BaseStufioSettings):
     # CLICKHOUSE SETTINGS
     CLICKHOUSE_DSN: str
     CLICKHOUSE_CLUSTER_DSN_LIST: Optional[List[str]] = None
+    CLICKHOUSE_CLUSTER_NAME: Optional[str] = None
+    CLICKHOUSE_CLUSTER_CONN_OPTIMIZE: bool = True
+    CLICKHOUSE_CONN_OPTIMIZE_MODE: str = "adaptive"  # "adaptive", "periodic", "once"
+
+    @field_validator("CLICKHOUSE_CLUSTER_NAME", mode="before")
+    def validate_cluster_name(cls, v: Optional[str], info: ValidationInfo) -> Optional[str]:
+        """
+        Validates that CLICKHOUSE_CLUSTER_NAME is provided when CLICKHOUSE_CLUSTER_DSN_LIST is used.
+        """
+        cluster_dsn_list = info.data.get("CLICKHOUSE_CLUSTER_DSN_LIST")
+        
+        # If cluster DSN list is provided, cluster name is required
+        if cluster_dsn_list and len(cluster_dsn_list) > 0:
+            if not v or not isinstance(v, str) or not v.strip():
+                raise ValueError("CLICKHOUSE_CLUSTER_NAME is required when CLICKHOUSE_CLUSTER_DSN_LIST is provided")
+        
+        return v.strip() if v else None
 
     @field_validator("CLICKHOUSE_CLUSTER_DSN_LIST", mode="before")
     def optimize_clickhouse_dsn_list_for_region(cls, v: Optional[List[str]], info: ValidationInfo) -> List[str]:
@@ -265,6 +282,9 @@ settings_registry.register_subgroup(
 settings_registry.register_subgroup(
     SubgroupMetadata(id="metrics", group_id="database", label="Metrics", order=100),
 )
+settings_registry.register_subgroup(
+    SubgroupMetadata(id="clickhouse", group_id="database", label="ClickHouse", order=200),
+)
 
 settings_registry.register_setting(
     SettingMetadata(
@@ -314,7 +334,45 @@ settings_registry.register_setting(
         subgroup="metrics", 
         type=SettingType.NUMBER,
         component="number",
-        order=20,
-        props={"min": 60, "max": 3600}
+        order=20
+    )
+)
+
+settings_registry.register_setting(
+    SettingMetadata(
+        key="CLICKHOUSE_CLUSTER_NAME",
+        label="ClickHouse Cluster Name",
+        description="Name of the ClickHouse cluster (required when using cluster mode)",
+        group="database",
+        subgroup="clickhouse",
+        type=SettingType.STRING,
+        component="input",
+        order=10
+    )
+)
+
+settings_registry.register_setting(
+    SettingMetadata(
+        key="CLICKHOUSE_CLUSTER_CONN_OPTIMIZE",
+        label="Enable Connection Optimization",
+        description="Automatically optimize ClickHouse connections by periodically checking for local nodes and reconnecting when needed",
+        group="database",
+        subgroup="clickhouse",
+        type=SettingType.BOOLEAN,
+        component="switch",
+        order=20
+    )
+)
+
+settings_registry.register_setting(
+    SettingMetadata(
+        key="CLICKHOUSE_CONN_OPTIMIZE_MODE",
+        label="Optimization Mode",
+        description="How often to check for optimization: 'adaptive' (smart intervals), 'periodic' (fixed intervals), 'once' (single attempt only)",
+        group="database",
+        subgroup="clickhouse",
+        type=SettingType.STRING,
+        component="select",
+        order=30
     )
 )
