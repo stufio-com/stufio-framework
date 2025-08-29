@@ -132,7 +132,7 @@ class StufioSettings(BaseStufioSettings):
         cluster_dsn_list = info.data.get("CLICKHOUSE_CLUSTER_DSN_LIST")
         
         # If cluster DSN list is provided, cluster name is required
-        if cluster_dsn_list and len(cluster_dsn_list) > 0:
+        if cluster_dsn_list and len(cluster_dsn_list) > 1:
             if not v or not isinstance(v, str) or not v.strip():
                 raise ValueError("CLICKHOUSE_CLUSTER_NAME is required when CLICKHOUSE_CLUSTER_DSN_LIST is provided")
         
