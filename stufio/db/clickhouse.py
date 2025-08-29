@@ -93,10 +93,13 @@ class _ClickhouseClientSingleton:
 
             logger.info(f"Connecting to Clickhouse at {dsn}")
 
-            # Create the client
+            # Create the client with better timeout settings for cluster operations
             clickhouse_client = await clickhouse_connect.get_async_client(
                 dsn=dsn,
                 client_name=f"stufio.fastapi",
+                connect_timeout=30,  # Increased from default 10s
+                send_receive_timeout=180,  # Increased from default 60s for DDL operations
+                compress=True,  # Enable compression for large operations
             )
 
             # Test the connection
@@ -129,10 +132,13 @@ class _ClickhouseClientSingleton:
 
                 logger.info(f"Trying to connect to Clickhouse cluster node at {dsn}")
 
-                # Create the client
+                # Create the client with better timeout settings for cluster operations
                 clickhouse_client = await clickhouse_connect.get_async_client(
                     dsn=dsn,
                     client_name=f"stufio.fastapi.cluster",
+                    connect_timeout=30,  # Increased for cluster operations
+                    send_receive_timeout=180,  # Increased for DDL operations across cluster
+                    compress=True,  # Enable compression for large operations
                 )
 
                 # Test basic connection
@@ -222,6 +228,11 @@ class _ClickhouseClientSingleton:
 
         except Exception as e:
             logger.warning(f"Failed to check cluster health for '{cluster_name}': {str(e)}")
+            # If we can't check cluster health due to permissions or other issues,
+            # assume the connection is healthy since basic connectivity worked
+            if "ACCESS_DENIED" in str(e) or "Not enough privileges" in str(e):
+                logger.info(f"Insufficient privileges to check system.clusters, assuming cluster '{cluster_name}' is healthy")
+                return True
             return False
 
     @classmethod
