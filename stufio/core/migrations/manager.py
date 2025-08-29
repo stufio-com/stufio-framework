@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Set, cast
+from typing import List, Dict, Optional, Set, cast, Callable
 import importlib
 import inspect
 import os
@@ -70,7 +70,7 @@ class MigrationManager:
                 import_path_generator=lambda rel_path: f"stufio.core.migrations.migrations.{version_dir}.{os.path.splitext(os.path.basename(rel_path))[0]}"
             )
 
-    def discover_module_migrations(self, module_path: str, module_name: str, module_version: str, module_import_path: str = None) -> None:
+    def discover_module_migrations(self, module_path: str, module_name: str, module_version: str, module_import_path: Optional[str] = None) -> None:
         """
         Discover migrations in a module.
         
@@ -130,7 +130,7 @@ class MigrationManager:
                 f"Error discovering migrations for module {module_name}: {str(e)}"
             )
 
-    def _discover_migrations(self, migrations_path: str, module_name: str, version: str, import_path_generator: callable) -> None:
+    def _discover_migrations(self, migrations_path: str, module_name: str, version: str, import_path_generator: Callable[[str], str]) -> None:
         """
         Common implementation for discovering migrations.
         
@@ -221,18 +221,30 @@ class MigrationManager:
 
         # Track how many migrations we run
         executed_count = 0
+        
+        # Flag for fail-fast behavior
+        migration_failed = False
 
         # Process each module's migrations including core app migrations
         for module_name, versions in self.migrations.items():
+            if migration_failed:
+                break
+                
             # Sort versions by date (the date-based version strings will sort correctly)
             sorted_versions = sorted(versions.keys())
 
             for version in sorted_versions:
+                if migration_failed:
+                    break
+                    
                 migrations = versions[version]
                 # Sort migrations by order
                 migrations.sort(key=lambda m: m.order)
 
                 for migration in migrations:
+                    if migration_failed:
+                        break
+                        
                     migration_key = f"{module_name}:{version}:{migration.name}"
 
                     # Skip if already executed
@@ -280,6 +292,8 @@ class MigrationManager:
                                 logger.info(f"Successfully executed migration {migration_key}")
                             else:
                                 logger.error(f"Failed to execute migration {migration_key}: {migration_record.error}")
+                                migration_failed = True
+                                break
                             # Save migration record
                             await mongodb.migrations.insert_one(migration_record.dict())
 
@@ -288,8 +302,34 @@ class MigrationManager:
 
                     except Exception as e:
                         logger.error(f"Failed to execute migration {migration_key}: {e}")
-                        # Stop migrations on error
-                        raise
+                        # Record the failed migration
+                        failed_migration_record = {
+                            "module": module_name,
+                            "version": version,
+                            "name": migration.name,
+                            "type": migration.database_type,
+                            "migration_type": migration.migration_type,
+                            "order": migration.order,
+                            "executed_at": "utcnow()",
+                            "execution_time_ms": 0,
+                            "success": False,
+                            "error": str(e),
+                            "description": migration.description,
+                        }
+                        try:
+                            await mongodb.migrations.insert_one(failed_migration_record)
+                        except Exception as db_error:
+                            logger.error(f"Failed to record migration failure: {db_error}")
+                        
+                        # FAIL FAST - Stop all migrations on any error
+                        logger.error(f"🚨 MIGRATION FAILURE: Stopping all migrations due to failed migration {migration_key}")
+                        logger.error(f"🚨 Error details: {e}")
+                        migration_failed = True
+                        break
+        
+        # If any migration failed, raise an exception to stop the entire process
+        if migration_failed:
+            raise Exception("🚨 Migration process stopped due to failure. Check logs for details.")
 
         return executed_count
 

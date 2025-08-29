@@ -38,7 +38,7 @@ class ClusterAwareAsyncClient:
         
         results = []
         for statement in statements:
-            # Retry logic for connection issues
+            # Enhanced retry logic with reconnection for connection issues
             max_retries = 3
             retry_delay = 2
             
@@ -48,13 +48,40 @@ class ClusterAwareAsyncClient:
                     results.append(result)
                     break
                 except Exception as e:
-                    if attempt < max_retries - 1 and ("Connection broken" in str(e) or "IncompleteRead" in str(e)):
-                        logger.warning(f"Connection error on attempt {attempt + 1}, retrying in {retry_delay}s: {e}")
+                    connection_errors = [
+                        "Connection broken", "IncompleteRead", "Connection closed",
+                        "Connection lost", "Connection refused", "Connection timeout",
+                        "Network is unreachable", "Connection reset"
+                    ]
+                    
+                    is_connection_error = any(error_type in str(e) for error_type in connection_errors)
+                    
+                    if attempt < max_retries - 1 and is_connection_error:
+                        logger.warning(f"Connection error on attempt {attempt + 1} for migration '{self._migration_name}': {e}")
+                        
+                        # Try to force reconnection for severe connection issues
+                        if "Connection broken" in str(e) or "IncompleteRead" in str(e):
+                            logger.info(f"Attempting to force ClickHouse reconnection due to: {type(e).__name__}")
+                            try:
+                                from stufio.db.clickhouse import force_reconnect
+                                reconnect_success = await force_reconnect(f"migration_retry_{self._migration_name}")
+                                if reconnect_success:
+                                    logger.info("ClickHouse reconnection successful, retrying statement")
+                                    # Update our client reference to the new connection
+                                    from stufio.db.clickhouse import ClickhouseDatabase
+                                    self._original_client = await ClickhouseDatabase()
+                                else:
+                                    logger.warning("ClickHouse reconnection failed, will retry with existing connection")
+                            except Exception as reconnect_error:
+                                logger.warning(f"Reconnection attempt failed: {reconnect_error}")
+                        
+                        logger.info(f"Retrying statement in {retry_delay}s (attempt {attempt + 2}/{max_retries})")
                         await asyncio.sleep(retry_delay)
                         retry_delay *= 2  # Exponential backoff
                         continue
                     else:
                         # Re-raise the exception if max retries exceeded or different error
+                        logger.error(f"Migration '{self._migration_name}' failed after {attempt + 1} attempts: {e}")
                         raise
         
         # Return the last result (or first if only one)
@@ -179,11 +206,70 @@ class ClickhouseMigrationScript(MigrationScript[AsyncClient]):
     def _add_on_cluster_if_needed(self, statement: str) -> str:
         """Add ON CLUSTER clause to DDL statements when cluster is configured.
         
-        NOTE: ON CLUSTER is disabled because the current ClickHouse version 
-        doesn't support this syntax. Instead, we rely on ReplicatedMergeTree
-        engines for data replication after tables are manually created on each node.
+        Now that CLUSTER privileges have been granted to the gymtracer user,
+        we can use ON CLUSTER for DDL distribution across all cluster nodes.
         """
-        # ON CLUSTER is not supported in this ClickHouse version, skip transformation
+        if not self._is_cluster_enabled():
+            return statement
+
+        from stufio.core.config import get_settings
+        settings = get_settings()
+        cluster_name = getattr(settings, 'CLICKHOUSE_CLUSTER_NAME', 'if_cluster')
+
+        statement_upper = statement.upper().strip()
+        
+        # Only add ON CLUSTER to DDL statements that support it
+        ddl_keywords = [
+            'CREATE TABLE', 'CREATE OR REPLACE TABLE', 'CREATE VIEW', 'CREATE MATERIALIZED VIEW',
+            'DROP TABLE', 'DROP VIEW', 'ALTER TABLE', 'RENAME TABLE', 'TRUNCATE TABLE'
+        ]
+        
+        # Check if this is a DDL statement that supports ON CLUSTER
+        if any(statement_upper.startswith(keyword) for keyword in ddl_keywords):
+            # Check if ON CLUSTER is already present
+            if 'ON CLUSTER' not in statement_upper:
+                
+                # Handle CREATE statements: CREATE [OR REPLACE] [MATERIALIZED] TABLE [IF NOT EXISTS] table_name ...
+                if statement_upper.startswith(('CREATE TABLE', 'CREATE OR REPLACE TABLE', 'CREATE VIEW', 'CREATE MATERIALIZED VIEW')):
+                    # Pattern to match: CREATE [modifiers] table_name (columns...)
+                    # Table name can be: table, `table`, schema.table, `schema`.`table`
+                    create_pattern = re.compile(
+                        r'(CREATE\s+(?:OR\s+REPLACE\s+)?(?:MATERIALIZED\s+)?(?:TABLE|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?)(`?[^.\s]+`?(?:\.`?[^.\s]+`?)?)\s*(\(.*)',
+                        re.IGNORECASE | re.DOTALL
+                    )
+                    match = create_pattern.match(statement)
+                    if match:
+                        prefix = match.group(1)  # CREATE ... part
+                        table_name = match.group(2)  # table name
+                        rest = match.group(3)  # column definitions and rest
+                        return f"{prefix}{table_name} ON CLUSTER '{cluster_name}' {rest}"
+                
+                # Handle DROP statements: DROP TABLE [IF EXISTS] table_name
+                elif statement_upper.startswith(('DROP TABLE', 'DROP VIEW')):
+                    drop_pattern = re.compile(
+                        r'(DROP\s+(?:TABLE|VIEW)\s+(?:IF\s+EXISTS\s+)?)(`?[^.\s]+`?(?:\.`?[^.\s]+`?)?)(.*)',
+                        re.IGNORECASE | re.DOTALL
+                    )
+                    match = drop_pattern.match(statement)
+                    if match:
+                        prefix = match.group(1)  # DROP ... part
+                        table_name = match.group(2)  # table name
+                        rest = match.group(3)  # rest of statement
+                        return f"{prefix}{table_name} ON CLUSTER '{cluster_name}'{rest}"
+                
+                # Handle ALTER statements: ALTER TABLE table_name ...
+                elif statement_upper.startswith('ALTER TABLE'):
+                    alter_pattern = re.compile(
+                        r'(ALTER\s+TABLE\s+)(`?[^.\s]+`?(?:\.`?[^.\s]+`?)?)(.*)',
+                        re.IGNORECASE | re.DOTALL
+                    )
+                    match = alter_pattern.match(statement)
+                    if match:
+                        prefix = match.group(1)  # ALTER TABLE part
+                        table_name = match.group(2)  # table name
+                        rest = match.group(3)  # rest of statement
+                        return f"{prefix}{table_name} ON CLUSTER '{cluster_name}'{rest}"
+        
         return statement
 
     def _transform_sql_for_cluster(self, sql: str) -> str:
