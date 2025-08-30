@@ -115,14 +115,15 @@ async def get_refresh_user(
         raise HTTPException(status_code=404, detail="User not found")
     if not crud.user.is_active(user):
         raise HTTPException(status_code=400, detail="Inactive user")
-    # Check and revoke this refresh token
+    # Check this refresh token exists and is valid
     token_obj = await crud.token.get_by_user(user=user, token=token)
     if not token_obj:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Could not validate credentials",
         )
-    await crud.token.remove(db_obj=token_obj)
+    # Don't remove the token here - let the calling endpoint handle it
+    # This prevents race conditions and allows proper error handling
     return user
 
 

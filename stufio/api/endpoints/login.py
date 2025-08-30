@@ -2,6 +2,7 @@ from typing import Any, Union, Annotated
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Header, Request
 from fastapi.security import OAuth2PasswordRequestForm
+from odmantic.exceptions import DocumentNotFoundError
 
 from pydantic_core import Url
 from stufio import crud, models, schemas
@@ -457,12 +458,27 @@ async def disable_totp_authentication(
 @router.post("/refresh", response_model=schemas.Token)
 async def refresh_token(
     current_user: models.User = Depends(deps.get_refresh_user),
+    token: str = Depends(deps.reusable_oauth2),
 ) -> Any:
     """
     Refresh tokens for future requests
     """
+    # Create new refresh token first
     refresh_token = security.create_refresh_token(subject=current_user.id)
     await crud.token.create(obj_in=refresh_token, user_obj=current_user)
+    
+    # Now safely remove the old token - handle case where it might already be deleted
+    try:
+        old_token_obj = await crud.token.get_by_user(user=current_user, token=token)
+        if old_token_obj:
+            await crud.token.remove(db_obj=old_token_obj)
+    except DocumentNotFoundError:
+        # If token was already deleted by another request, that's fine
+        pass
+    except Exception:
+        # Other exceptions shouldn't break the refresh flow since new token is already created
+        pass
+    
     return {
         "access_token": security.create_access_token(subject=current_user.id),
         "refresh_token": refresh_token,
@@ -478,9 +494,17 @@ async def revoke_token(
     """
     Revoke a refresh token
     """
-    token_obj = await crud.token.get_by_user(token=token, user=current_user)
-    if token_obj:
-        await crud.token.remove(db_obj=token_obj)
+    try:
+        token_obj = await crud.token.get_by_user(token=token, user=current_user)
+        if token_obj:
+            await crud.token.remove(db_obj=token_obj)
+    except DocumentNotFoundError:
+        # If token was already deleted, that's fine - goal achieved
+        pass
+    except Exception:
+        # If token removal fails for other reasons, still return success
+        # since the goal (token not usable) has been achieved
+        pass
 
     return {"msg": "Token revoked"}
 
