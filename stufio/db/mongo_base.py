@@ -1,9 +1,9 @@
 from odmantic import Model
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 def datetime_now_sec() -> datetime:
-    """Return current datetime without microseconds for Clickhouse compatibility"""
-    return datetime.now().replace(microsecond=0)
+    """Return current UTC datetime without microseconds for consistency"""
+    return datetime.now(timezone.utc).replace(microsecond=0)
 
 MongoBase = Model
