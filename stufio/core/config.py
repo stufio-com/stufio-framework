@@ -123,6 +123,10 @@ class StufioSettings(BaseStufioSettings):
     CLICKHOUSE_CLUSTER_NAME: Optional[str] = None
     CLICKHOUSE_CLUSTER_CONN_OPTIMIZE: bool = True
     CLICKHOUSE_CONN_OPTIMIZE_MODE: str = "adaptive"  # "adaptive", "periodic", "once"
+    CLICKHOUSE_POOL_SIZE: int = 20  # Connection pool size (default 20, increase if you have many concurrent requests)
+    CLICKHOUSE_POOL_TIMEOUT: int = 30  # Max seconds to wait for available connection
+    CLICKHOUSE_READ_ONLY: int = 0  # 0 = read/write, 1 = read-only mode
+    CLICKHOUSE_MAX_THREADS: int = 4  # Maximum threads for query execution (1-8)
 
     @field_validator("CLICKHOUSE_CLUSTER_NAME", mode="before")
     def validate_cluster_name(cls, v: Optional[str], info: ValidationInfo) -> Optional[str]:
@@ -374,5 +378,44 @@ settings_registry.register_setting(
         type=SettingType.STRING,
         component="select",
         order=30
+    )
+)
+
+settings_registry.register_setting(
+    SettingMetadata(
+        key="CLICKHOUSE_POOL_SIZE",
+        label="Connection Pool Size",
+        description="Maximum number of connections in the ClickHouse connection pool (default: 20)",
+        group="database",
+        subgroup="clickhouse",
+        type=SettingType.NUMBER,
+        component="number",
+        order=40
+    )
+)
+
+settings_registry.register_setting(
+    SettingMetadata(
+        key="CLICKHOUSE_READ_ONLY",
+        label="Read-Only Mode",
+        description="Set ClickHouse connection to read-only mode: 0 = read/write, 1 = read-only",
+        group="database",
+        subgroup="clickhouse",
+        type=SettingType.NUMBER,
+        component="number",
+        order=50
+    )
+)
+
+settings_registry.register_setting(
+    SettingMetadata(
+        key="CLICKHOUSE_MAX_THREADS",
+        label="Max Query Threads",
+        description="Maximum number of threads for ClickHouse query execution (1-8)",
+        group="database",
+        subgroup="clickhouse",
+        type=SettingType.NUMBER,
+        component="number",
+        order=60
     )
 )

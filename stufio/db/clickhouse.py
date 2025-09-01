@@ -82,6 +82,66 @@ class _ClickhouseClientSingleton:
         return cls._instance
 
     @classmethod
+    def _create_pool_manager(cls) -> Optional[object]:
+        """Create a custom urllib3 pool manager with optimal settings for ClickHouse connections"""
+        try:
+            import urllib3
+            
+            pool_mgr = urllib3.PoolManager(
+                num_pools=settings.CLICKHOUSE_POOL_SIZE,
+                maxsize=settings.CLICKHOUSE_POOL_SIZE,
+                block=False,  # Don't block when pool is full, discard instead
+                timeout=urllib3.Timeout(connect=30, read=180),
+                retries=urllib3.Retry(
+                    total=3,
+                    backoff_factor=0.1,
+                    status_forcelist=[500, 502, 503, 504]
+                )
+            )
+            
+            logger.info(f"Created ClickHouse connection pool with size: {settings.CLICKHOUSE_POOL_SIZE}")
+            return pool_mgr
+            
+        except Exception as e:
+            logger.warning(f"Failed to create custom pool manager: {e}, using default")
+            return None
+
+    @classmethod
+    def _get_connection_params(cls, dsn: str, client_name_suffix: str = "") -> dict:
+        """Get standardized connection parameters for ClickHouse client"""
+        
+        # Create custom pool manager
+        pool_mgr = cls._create_pool_manager()
+        
+        # Get settings with defaults for missing values
+        readonly = getattr(settings, 'CLICKHOUSE_READ_ONLY', 0)
+        max_threads = getattr(settings, 'CLICKHOUSE_MAX_THREADS', 4)
+        
+        # Base connection parameters
+        connection_params = {
+            "dsn": dsn,
+            "settings": {
+                "send_progress_in_http_headers": True,
+                "readonly": int(readonly),
+                "max_threads": max(1, min(8, max_threads)),
+            },
+            "generic_args": {
+                "client_name": f"stufio.fastapi{client_name_suffix}",
+                "connect_timeout": 30,
+                "send_receive_timeout": 180,
+                "query_retries": 3,  # Use query_retries instead of max_retries
+                "compress": True,
+                "verify": True,
+            }
+        }
+        
+        # Add pool manager if successfully created
+        if pool_mgr:
+            connection_params["generic_args"]["pool_mgr"] = pool_mgr
+            
+        return connection_params
+
+    @classmethod
     async def _connect_to_single_node(cls, dsn: str) -> Optional[AsyncClient]:
         """Connect to a single ClickHouse node"""
         try:
@@ -93,14 +153,11 @@ class _ClickhouseClientSingleton:
 
             logger.info(f"Connecting to Clickhouse at {dsn}")
 
-            # Create the client with better timeout settings for cluster operations
-            clickhouse_client = await clickhouse_connect.get_async_client(
-                dsn=dsn,
-                client_name=f"stufio.fastapi",
-                connect_timeout=30,  # Increased from default 10s
-                send_receive_timeout=180,  # Increased from default 60s for DDL operations
-                compress=True,  # Enable compression for large operations
-            )
+            # Get standardized connection parameters
+            connection_params = cls._get_connection_params(dsn, client_name_suffix="")
+            
+            # Create the ClickHouse client
+            clickhouse_client = await clickhouse_connect.get_async_client(**connection_params)
 
             # Test the connection
             await clickhouse_client.ping()
@@ -109,6 +166,7 @@ class _ClickhouseClientSingleton:
             cls._apply_metrics_wrapper(clickhouse_client)
 
             logger.info(f"Successfully connected to ClickHouse at {dsn}")
+            logger.info(f"Connection configured with compression and extended timeouts")
             return clickhouse_client
 
         except Exception as e:
@@ -132,14 +190,11 @@ class _ClickhouseClientSingleton:
 
                 logger.info(f"Trying to connect to Clickhouse cluster node at {dsn}")
 
-                # Create the client with better timeout settings for cluster operations
-                clickhouse_client = await clickhouse_connect.get_async_client(
-                    dsn=dsn,
-                    client_name=f"stufio.fastapi.cluster",
-                    connect_timeout=30,  # Increased for cluster operations
-                    send_receive_timeout=180,  # Increased for DDL operations across cluster
-                    compress=True,  # Enable compression for large operations
-                )
+                # Get standardized connection parameters for cluster
+                connection_params = cls._get_connection_params(dsn, client_name_suffix=".cluster")
+                
+                # Create the ClickHouse client with proper pool management
+                clickhouse_client = await clickhouse_connect.get_async_client(**connection_params)
 
                 # Test basic connection
                 await clickhouse_client.ping()
@@ -156,6 +211,7 @@ class _ClickhouseClientSingleton:
                 cls._apply_metrics_wrapper(clickhouse_client)
 
                 logger.info(f"Successfully connected to ClickHouse cluster via {dsn}")
+                logger.info(f"Connection configured with compression and extended timeouts")
                 if cluster_name:
                     logger.info(f"Cluster '{cluster_name}' is healthy")
 
@@ -312,6 +368,37 @@ class _ClickhouseClientSingleton:
         except Exception as e:
             logger.error(f"Failed to check connection locality: {str(e)}")
             return {"status": "check_failed", "is_local": None, "cluster_info": str(e)}
+
+    @classmethod
+    async def cleanup(cls):
+        """Cleanup connections and tasks - should be called during app shutdown"""
+        logger.info("Cleaning up ClickHouse connections...")
+        
+        # Stop optimization task if running
+        if cls._instance and cls._instance._optimization_task:
+            try:
+                cls._instance._optimization_task.cancel()
+                await cls._instance._optimization_task
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logger.debug(f"Error cancelling optimization task: {str(e)}")
+            finally:
+                cls._instance._optimization_task = None
+
+        # Close existing connection if it exists
+        if cls._instance and cls._instance.clickhouse_client:
+            try:
+                await cls._instance.clickhouse_client.close()
+                logger.info("ClickHouse client connection closed")
+            except Exception as e:
+                logger.debug(f"Error closing ClickHouse connection: {str(e)}")
+            finally:
+                cls._instance.clickhouse_client = None
+
+        # Reset singleton
+        cls._instance = None
+        logger.info("ClickHouse cleanup completed")
 
     @classmethod
     async def force_reconnect(cls, reason: str = "manual_reconnect"):
@@ -592,6 +679,115 @@ async def stop_optimization():
         logger.info("ClickHouse connection optimization stopped")
 
 
+async def test_connection_pool(concurrent_requests: int = 5) -> dict:
+    """
+    Test ClickHouse connection pool under concurrent load.
+    Useful for debugging pool exhaustion issues.
+    
+    Args:
+        concurrent_requests: Number of concurrent requests to test with
+        
+    Returns:
+        dict: Test results with timing and success/failure info
+    """
+    import time
+    
+    async def single_ping():
+        """Single ping test"""
+        start_time = time.time()
+        try:
+            client = await ClickhouseDatabase()
+            await client.ping()
+            return {"success": True, "duration": time.time() - start_time}
+        except Exception as e:
+            return {"success": False, "duration": time.time() - start_time, "error": str(e)}
+    
+    logger.info(f"Testing ClickHouse connection pool with {concurrent_requests} concurrent requests...")
+    
+    start_time = time.time()
+    
+    # Run concurrent pings
+    tasks = [single_ping() for _ in range(concurrent_requests)]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    total_time = time.time() - start_time
+    
+    # Analyze results
+    successful = sum(1 for r in results if isinstance(r, dict) and r.get("success"))
+    failed = len(results) - successful
+    
+    durations = [r.get("duration", 0) for r in results if isinstance(r, dict)]
+    avg_duration = sum(durations) / len(durations) if durations else 0
+    
+    test_results = {
+        "connection_config": "simplified",
+        "concurrent_requests": concurrent_requests,
+        "total_time": total_time,
+        "successful_requests": successful,
+        "failed_requests": failed,
+        "average_duration": avg_duration,
+        "success_rate": successful / len(results) if results else 0
+    }
+    
+    logger.info(f"Pool test completed: {successful}/{len(results)} successful, avg duration: {avg_duration:.3f}s")
+    
+    if failed > 0:
+        logger.warning(f"Connection test found {failed} failures - consider reviewing ClickHouse connection configuration")
+    
+    return test_results
+
+
+async def get_connection_pool_status() -> dict:
+    """
+    Get current ClickHouse connection pool status for monitoring.
+    Useful for debugging connection pool issues.
+    
+    Returns:
+        dict: Pool status information
+    """
+    if not _ClickhouseClientSingleton._instance or not _ClickhouseClientSingleton._instance.clickhouse_client:
+        return {
+            "status": "no_connection",
+            "pool_configured": False,
+            "connection_type": None
+        }
+    
+    try:
+        client = _ClickhouseClientSingleton._instance.clickhouse_client
+        
+        # Get basic connection configuration
+        pool_info = {
+            "status": "connected",
+            "pool_configured": "simplified",
+            "connection_type": "default_pooling",
+            "client_name": getattr(client, 'client_name', 'unknown')
+        }
+        
+        # Test connection to verify pool is working
+        await client.ping()
+        pool_info["connection_test"] = "success"
+        
+        return pool_info
+        
+    except Exception as e:
+        logger.error(f"Error getting connection pool status: {str(e)}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "pool_configured": "simplified",
+            "connection_type": "default_pooling",
+            "connection_test": "failed"
+        }
+
+
+async def cleanup():
+    """
+    Cleanup ClickHouse connections and tasks.
+    Should be called during application shutdown.
+    """
+    await _ClickhouseClientSingleton.cleanup()
+
+
 __all__ = [
     "ClickhouseDatabase", 
     "ping", 
@@ -600,5 +796,8 @@ __all__ = [
     "check_connection_locality",
     "force_reconnect",
     "get_optimization_status",
-    "stop_optimization"
+    "stop_optimization",
+    "get_connection_pool_status",
+    "test_connection_pool",
+    "cleanup"
 ]
