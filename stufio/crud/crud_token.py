@@ -1,6 +1,6 @@
 from __future__ import annotations
 from motor.core import AgnosticDatabase
-from odmantic.exceptions import DocumentNotFoundError
+from odmantic.exceptions import DocumentNotFoundError, DuplicateKeyError
 
 from stufio.crud.mongo_base import CRUDMongo
 from stufio.models.user import User
@@ -18,7 +18,12 @@ class CRUDToken(CRUDMongo[Token, RefreshTokenCreate, RefreshTokenUpdate]):
             return db_obj
         else:
             new_token = self.model(token=obj_in, authenticates_id=user_obj)
-            await self.engine.save_all([new_token])
+            try:
+                await self.engine.save_all([new_token])
+            except DuplicateKeyError:
+                # Handle exceptions (e.g., log them)
+                pass
+
             return new_token
 
     async def get_by_user(self, user: User, token: str) -> Token | None:

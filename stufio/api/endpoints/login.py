@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Union, Annotated
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Header, Request
@@ -19,6 +20,7 @@ from stufio.core.config import get_settings
 settings = get_settings()
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 """
 https://github.com/OWASP/CheatSheetSeries/blob/master/cheatsheets/Authentication_Cheat_Sheet.md
@@ -476,7 +478,7 @@ async def refresh_token(
         # If token was already deleted by another request, that's fine
         pass
     except Exception:
-        # Other exceptions shouldn't break the refresh flow since new token is already created
+        logger.error("Failed to remove old token", exc_info=True)
         pass
     
     return {
