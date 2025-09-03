@@ -1,5 +1,5 @@
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Union, Optional
 
 from jose import jwt
@@ -34,9 +34,9 @@ totp_factory = TOTP.using(secrets={"1": settings.TOTP_SECRET_KEY}, issuer=settin
 
 def create_access_token(*, subject: Union[str, Any], expires_delta: timedelta = None, force_totp: bool = False) -> str:
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(seconds=settings.ACCESS_TOKEN_EXPIRE_SECONDS)
+        expire = datetime.now(timezone.utc) + timedelta(seconds=settings.ACCESS_TOKEN_EXPIRE_SECONDS)
     to_encode = {"exp": expire, "sub": str(subject), "totp": force_totp}
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.JWT_ALGO)
     return encoded_jwt
@@ -44,9 +44,9 @@ def create_access_token(*, subject: Union[str, Any], expires_delta: timedelta = 
 
 def create_refresh_token(*, subject: Union[str, Any], expires_delta: timedelta = None) -> str:
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(seconds=settings.REFRESH_TOKEN_EXPIRE_SECONDS)
+        expire = datetime.now(timezone.utc) + timedelta(seconds=settings.REFRESH_TOKEN_EXPIRE_SECONDS)
     to_encode = {"exp": expire, "sub": str(subject), "refresh": True}
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.JWT_ALGO)
     return encoded_jwt
@@ -54,9 +54,9 @@ def create_refresh_token(*, subject: Union[str, Any], expires_delta: timedelta =
 
 def create_magic_tokens(*, subject: Union[str, Any], pub: Union[str, Any] = None, expires_delta: timedelta = None) -> list[str]:
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(seconds=settings.ACCESS_TOKEN_EXPIRE_SECONDS)
+        expire = datetime.now(timezone.utc) + timedelta(seconds=settings.ACCESS_TOKEN_EXPIRE_SECONDS)
     fingerprint = str(uuid.uuid4())
     if not pub:
         pub = uuid.uuid4()

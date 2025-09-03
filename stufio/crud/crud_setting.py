@@ -4,7 +4,7 @@ from motor.core import AgnosticDatabase
 from pymongo import settings
 import redis
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ..crud.mongo_base import CRUDMongo
 from ..models.setting import Setting, SettingHistory
@@ -53,7 +53,7 @@ class CRUDSetting(CRUDMongo[Setting, SettingCreate, SettingUpdate]):
 
             # Update existing setting
             existing.value = value
-            existing.updated_at = datetime.now().replace(microsecond=0)
+            existing.updated_at = datetime.now(timezone.utc).replace(microsecond=0)
             existing.updated_by = user_id
 
             # await self.engine.save_all([existing, history])

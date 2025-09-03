@@ -4,7 +4,7 @@ from typing import Optional
 import logging
 from stufio.core.config import get_settings
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import clickhouse_connect
 from clickhouse_connect.driver.asyncclient import AsyncClient
@@ -538,7 +538,7 @@ class _ClickhouseClientSingleton:
             bool: True if optimization was needed (performance issue detected), False if all is well
         """
         try:
-            self._last_optimization_check = datetime.now()
+            self._last_optimization_check = datetime.now(timezone.utc)
 
             # Check current connection status
             status = await self.check_connection_locality()

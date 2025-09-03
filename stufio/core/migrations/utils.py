@@ -5,7 +5,7 @@ def get_current_version_dir():
     """
     Get the current date-based version directory name (v20250308 format).
     """
-    today = datetime.datetime.now()
+    today = datetime.datetime.now(datetime.timezone.utc)
     return f"v{today.strftime('%Y%m%d')}"
 
 def ensure_migration_dir(base_path, module_name=None):
@@ -44,7 +44,7 @@ def ensure_migration_dir(base_path, module_name=None):
     version_init_py = os.path.join(version_dir_path, "__init__.py")
     if not os.path.exists(version_init_py):
         with open(version_init_py, "w") as f:
-            f.write(f"# Migrations created on {datetime.datetime.now().strftime('%Y-%m-%d')}\n")
+            f.write(f"# Migrations created on {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')}\n")
             
     return migrations_dir, version_dir_path
 

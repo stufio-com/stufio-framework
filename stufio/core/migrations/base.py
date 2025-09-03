@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Literal, Optional, TypeVar, Generic, Union
 import time
 import hashlib
@@ -147,7 +147,7 @@ class MigrationScript(ABC, Generic[DB]):
                 type=self.database_type,  # Use the property instead of checking type
                 migration_type=self.migration_type,
                 order=self.order,
-                executed_at=datetime.utcnow(),
+                executed_at=datetime.now(timezone.utc),
                 execution_time_ms=execution_time_ms,
                 success=success,
                 error=error,
@@ -406,7 +406,7 @@ class ClickhouseMigrationScript(MigrationScript[AsyncClient]):
                 type="clickhouse",
                 migration_type=self.migration_type,
                 order=self.order,
-                executed_at=datetime.utcnow(),
+                executed_at=datetime.now(timezone.utc),
                 execution_time_ms=execution_time_ms,
                 success=success,
                 error=error,

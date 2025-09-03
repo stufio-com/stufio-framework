@@ -1,12 +1,12 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 from pydantic import BaseModel, ConfigDict
 from stufio.db.clickhouse import get_database_from_dsn
 
 
 def datetime_now_sec() -> datetime:
-    """Return current datetime without microseconds for Clickhouse compatibility"""
-    return datetime.now().replace(microsecond=0)
+    """Return current UTC datetime without microseconds for Clickhouse compatibility"""
+    return datetime.now(timezone.utc).replace(microsecond=0)
 
 class ClickhouseBase(BaseModel):
     """Base class for Clickhouse models"""

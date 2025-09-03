@@ -4,18 +4,18 @@ from odmantic import Field, Reference
 from pydantic import ConfigDict
 from stufio.db.mongo_base import MongoBase, datetime_now_sec
 from stufio.models import User
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from stufio.core.config import get_settings
 
 
 settings = get_settings()
 
 def datetime_expires_sec() -> datetime:
-    """Return max expiration time for a token"""
+    """Return max expiration time for a token in UTC"""
     max_expire = max(
         settings.ACCESS_TOKEN_EXPIRE_SECONDS, settings.REFRESH_TOKEN_EXPIRE_SECONDS
     )
-    return datetime.now().replace(microsecond=0) + timedelta(seconds=max_expire)
+    return datetime.now(timezone.utc).replace(microsecond=0) + timedelta(seconds=max_expire)
 
 
 class Token(MongoBase):
