@@ -469,17 +469,18 @@ async def refresh_token(
     refresh_token = security.create_refresh_token(subject=current_user.id)
     await crud.token.create(obj_in=refresh_token, user_obj=current_user)
     
-    # Now safely remove the old token - handle case where it might already be deleted
-    try:
-        old_token_obj = await crud.token.get_by_user(user=current_user, token=token)
-        if old_token_obj:
-            await crud.token.remove(db_obj=old_token_obj)
-    except DocumentNotFoundError:
-        # If token was already deleted by another request, that's fine
-        pass
-    except Exception:
-        logger.error("Failed to remove old token", exc_info=True)
-        pass
+    # Skip removal of old token to allow multiple concurrent sessions
+    # If you want to enforce single session, uncomment below
+    # try:
+    #     old_token_obj = await crud.token.get_by_user(user=current_user, token=token)
+    #     if old_token_obj:
+    #         await crud.token.remove(db_obj=old_token_obj)
+    # except DocumentNotFoundError:
+    #     # If token was already deleted by another request, that's fine
+    #     pass
+    # except Exception:
+    #     logger.error("Failed to remove old token", exc_info=True)
+    #     pass
     
     return {
         "access_token": security.create_access_token(subject=current_user.id),

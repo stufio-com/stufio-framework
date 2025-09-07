@@ -1,6 +1,5 @@
 from typing import Optional, List
 from odmantic import Field
-from pydantic import ConfigDict
 from stufio.db.mongo_base import MongoBase
 
 class UserGroup(MongoBase):
@@ -10,9 +9,6 @@ class UserGroup(MongoBase):
     permissions: List[str] = Field(default_factory=list)
     is_active: bool = True
     
-    model_config = ConfigDict(
-        collection="user_groups",
-        indexes=[
-            {"fields": [("name", 1)], "unique": True}
-        ],
-    )
+    model_config = {
+        "collection": "user_groups"
+    }

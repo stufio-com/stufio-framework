@@ -4,6 +4,10 @@ from pydantic import BaseModel, ConfigDict
 from stufio.db.clickhouse import get_database_from_dsn
 
 
+def datetime_now() -> datetime:
+    """Return current UTC datetime for Clickhouse compatibility"""
+    return datetime.now(timezone.utc)
+
 def datetime_now_sec() -> datetime:
     """Return current UTC datetime without microseconds for Clickhouse compatibility"""
     return datetime.now(timezone.utc).replace(microsecond=0)

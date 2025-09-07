@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Any, Optional, List
 from datetime import datetime
-from pydantic import ConfigDict, EmailStr, model_validator
+from pydantic import EmailStr, model_validator
 from odmantic import Field, ObjectId
 
 from stufio.db.mongo_base import MongoBase, datetime_now_sec
@@ -50,13 +50,6 @@ class User(MongoBase):
         
         return data
 
-    model_config = ConfigDict(
-        collection="users",
-        indexes=[
-            {"fields": [("email", 1)], "unique": True},
-            {"fields": [("user_groups", 1)]}
-        ],
-        json_encoders={
-            ObjectId: str
-        }
-    )
+    model_config = {
+        "collection": "users"
+    }

@@ -1,7 +1,6 @@
 from __future__ import annotations
 from typing import Optional
 from odmantic import Field, Reference
-from pydantic import ConfigDict
 from stufio.db.mongo_base import MongoBase, datetime_now_sec
 from stufio.models import User
 from datetime import datetime, timedelta, timezone
@@ -15,20 +14,15 @@ def datetime_expires_sec() -> datetime:
     max_expire = max(
         settings.ACCESS_TOKEN_EXPIRE_SECONDS, settings.REFRESH_TOKEN_EXPIRE_SECONDS
     )
-    return datetime.now(timezone.utc).replace(microsecond=0) + timedelta(seconds=max_expire)
+    return datetime_now_sec() + timedelta(seconds=max_expire)
 
 
 class Token(MongoBase):
-    token: str
+    token: str = Field(index=True, unique=True)
     authenticates_id: User = Reference()  # Store just the ObjectId instead of a reference
     created: datetime = Field(default_factory=datetime_now_sec)
-    expires: datetime = Field(default_factory=datetime_expires_sec)
+    expires: datetime = Field(default_factory=datetime_expires_sec, index=True)
 
-    model_config = ConfigDict(
-        collection="tokens",
-        indexes=[
-            {"fields": [("token", 1)], "unique": True},
-            {"fields": [("authenticates_id", 1)]},
-            {"fields": [("expires", 1)], "expireAfterSeconds": 0},
-        ],
-    )
+    model_config = {
+        "collection": "tokens"
+    }

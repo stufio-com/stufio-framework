@@ -2,7 +2,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional, Dict, Any, Literal, Union
 from odmantic import Field, Index
-from pydantic import ConfigDict
 
 from stufio.db.mongo_base import MongoBase, datetime_now_sec
 
@@ -32,9 +31,9 @@ class Migration(MongoBase):
     
     # ODMantic requires a different pattern for model configuration
     # Use model_config instead of nested Config class
-    model_config = ConfigDict(
-        collection="migrations",
-        indexes=[
+    model_config = {
+        "collection": "migrations",
+        "indexes": lambda: [
             Index(
                 "module", 
                 "version", 
@@ -42,4 +41,4 @@ class Migration(MongoBase):
                 unique=True
             )
         ]
-    )
+    }
