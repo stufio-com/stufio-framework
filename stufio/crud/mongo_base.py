@@ -101,6 +101,10 @@ class CRUDMongo(BaseCRUD[ModelType, CreateSchemaType, UpdateSchemaType]):
         obj_in_data = jsonable_encoder(obj_in)
         db_obj = self.model(**obj_in_data)
         return await self.engine.save(db_obj)
+    
+    async def save(self, db_obj: ModelType) -> ModelType:
+        """Save (insert or update) an object in database."""
+        return await self.engine.save(db_obj)
 
     async def update(self, db_obj: ModelType, update_data: Union[Dict[str, Any], ModelType]) -> ModelType:
         """Update a model in database."""
