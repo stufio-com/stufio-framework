@@ -168,22 +168,22 @@ class MongoMigrationScript(MigrationScript[AgnosticDatabase]):
 
 class ClickhouseMigrationScript(MigrationScript[AsyncClient]):
     """
-    ClickHouse-specific migration script with simplified cluster support.
+    ClickHouse-specific migration script with cluster support.
 
     This version automatically:
     1. Converts `MergeTree` family engines to their `Replicated*` counterparts for data replication
-    2. Lets the ClickHouse cluster handle distribution automatically (no ON CLUSTER needed)
+    2. Adds ON CLUSTER clauses for DDL distribution when cluster is configured
     3. Skips DML statements (SELECT, INSERT, UPDATE, DELETE) - no transformation needed
     4. Uses ReplicatedMergeTree for high availability and automatic replication
     
-    Configuration:
-    - CLICKHOUSE_CLUSTER_DSN_LIST: Enables cluster mode when set
+    Configuration (both required for cluster mode):
+    - CLICKHOUSE_CLUSTER_DSN_LIST: List of cluster node DSNs
+    - CLICKHOUSE_CLUSTER_NAME: Name of the ClickHouse cluster
     
-    Benefits of this simplified approach:
-    - No need for ON CLUSTER clauses - ClickHouse handles this automatically
-    - No need for CLICKHOUSE_CLUSTER_NAME configuration
-    - Cleaner, more maintainable SQL transformations
-    - Focus solely on engine replication for data availability
+    Single-node mode:
+    - When cluster settings are not configured, runs in single-node mode
+    - No ON CLUSTER clauses or engine transformations
+    - Direct execution against single ClickHouse instance
     """
 
     @property
@@ -198,23 +198,36 @@ class ClickhouseMigrationScript(MigrationScript[AsyncClient]):
         return bool(getattr(settings, 'CLICKHOUSE_CREATE_DISTRIBUTED_TABLES', False))
 
     def _is_cluster_enabled(self) -> bool:
-        """Check if cluster support is enabled."""
+        """Check if cluster support is enabled.
+        
+        Requires both CLICKHOUSE_CLUSTER_DSN_LIST and CLICKHOUSE_CLUSTER_NAME to be properly configured.
+        """
         from stufio.core.config import get_settings
         settings = get_settings()
-        return bool(getattr(settings, 'CLICKHOUSE_CLUSTER_DSN_LIST', None))
+        
+        cluster_dsn_list = getattr(settings, 'CLICKHOUSE_CLUSTER_DSN_LIST', None)
+        cluster_name = getattr(settings, 'CLICKHOUSE_CLUSTER_NAME', None)
+        
+        # Both cluster DSN list and cluster name must be configured
+        return (bool(cluster_dsn_list) and 
+                bool(cluster_name) and 
+                cluster_name not in ['None', 'none', ''])
 
     def _add_on_cluster_if_needed(self, statement: str) -> str:
         """Add ON CLUSTER clause to DDL statements when cluster is configured.
         
-        Now that CLUSTER privileges have been granted to the gymtracer user,
-        we can use ON CLUSTER for DDL distribution across all cluster nodes.
+        Only adds ON CLUSTER when both cluster DSN list AND cluster name are properly configured.
         """
         if not self._is_cluster_enabled():
             return statement
 
         from stufio.core.config import get_settings
         settings = get_settings()
-        cluster_name = getattr(settings, 'CLICKHOUSE_CLUSTER_NAME', 'if_cluster')
+        cluster_name = getattr(settings, 'CLICKHOUSE_CLUSTER_NAME', None)
+        
+        # Only proceed if cluster name is explicitly configured
+        if not cluster_name or cluster_name in ['None', 'none', '']:
+            return statement
 
         statement_upper = statement.upper().strip()
         
