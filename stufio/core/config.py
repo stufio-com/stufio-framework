@@ -11,6 +11,7 @@ class StufioSettings(BaseStufioSettings):
     APP_NAME: str = "app"
     API_V1_STR: str = "/api/v1"
     API_ADMIN_STR: str = "/admin"
+    WS_PREFIX: str = "/ws"
     API_DEBUG: bool = False
     API_PROFILE: bool = False
     SECRET_KEY: str = secrets.token_urlsafe(32)
