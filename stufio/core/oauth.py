@@ -6,6 +6,7 @@ import logging
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 import jwt
+from jwt.algorithms import RSAAlgorithm
 import requests
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
@@ -104,8 +105,11 @@ class AppleOAuthVerifier:
 
             # Read private key
             try:
-                with open(private_key_path, 'r') as f:
-                    private_key = f.read()
+                if private_key_path:
+                    with open(private_key_path, 'r') as f:
+                        private_key = f.read()
+                else:
+                    raise OAuthError("Apple private key path not configured")
             except FileNotFoundError:
                 raise OAuthError(f"Apple private key file not found: {private_key_path}")
 
@@ -204,7 +208,7 @@ class AppleOAuthVerifier:
     @staticmethod
     async def _verify_id_token(id_token_str: str) -> Dict[str, Any]:
         """
-        Verify Apple ID token
+        Verify Apple ID token with proper signature verification
         
         Args:
             id_token_str: Apple ID token (JWT)
@@ -216,23 +220,62 @@ class AppleOAuthVerifier:
             OAuthError: If token verification fails
         """
         try:
-            # For now, decode without verification for development
-            # In production, you should verify the signature against Apple's public keys
-            decoded_token = jwt.decode(id_token_str, options={"verify_signature": False})
-
-            # Basic validation
+            # Get Apple's public keys
+            keys_data = await AppleOAuthVerifier._get_apple_public_keys()
+            
+            # Get the key ID from the token header
+            unverified_header = jwt.get_unverified_header(id_token_str)
+            kid = unverified_header.get('kid')
+            
+            if not kid:
+                raise OAuthError("No key ID found in Apple ID token header")
+            
+            # Find the matching public key JWK
+            public_key_jwk = None
+            for key in keys_data.get('keys', []):
+                if key.get('kid') == kid:
+                    public_key_jwk = key
+                    break
+            
+            if not public_key_jwk:
+                raise OAuthError(f"Public key not found for key ID: {kid}")
+            
+            # Get client ID for audience validation
             client_id = getattr(settings, 'APPLE_CLIENT_ID', None)
-            if decoded_token.get('aud') != client_id:
-                raise OAuthError("Invalid audience in Apple ID token")
+            if not client_id:
+                raise OAuthError("Apple client ID not configured")
+            
+            # Convert JWK to RSA public key object
+            public_key = RSAAlgorithm.from_jwk(public_key_jwk)
+            
+            # Verify the token with the RSA public key
+            decoded_token = jwt.decode(
+                id_token_str,
+                public_key,  # type: ignore - PyJWT accepts RSAPublicKey objects
+                algorithms=['RS256'],
+                audience=client_id,
+                issuer='https://appleid.apple.com'
+            )
 
-            if decoded_token.get('iss') != 'https://appleid.apple.com':
-                raise OAuthError("Invalid issuer in Apple ID token")
-
+            logger.info(f"Successfully verified Apple ID token signature for user: {decoded_token.get('sub')}")
             return decoded_token
 
+        except jwt.ExpiredSignatureError:
+            logger.error("Apple ID token has expired")
+            raise OAuthError("Apple ID token has expired")
+        except jwt.InvalidAudienceError as e:
+            client_id = getattr(settings, 'APPLE_CLIENT_ID', 'unknown')
+            logger.error(f"Invalid audience in Apple ID token. Expected: {client_id}")
+            raise OAuthError("Invalid audience in Apple ID token")
+        except jwt.InvalidIssuerError:
+            logger.error("Invalid issuer in Apple ID token")
+            raise OAuthError("Invalid issuer in Apple ID token")
         except jwt.InvalidTokenError as e:
             logger.error(f"Apple ID token verification failed: {str(e)}")
             raise OAuthError(f"Invalid Apple ID token: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error during Apple ID token verification: {str(e)}")
+            raise OAuthError(f"Apple ID token verification failed: {str(e)}")
 
     @staticmethod
     async def verify_authorization_code(
