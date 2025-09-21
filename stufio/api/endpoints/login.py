@@ -1,7 +1,7 @@
 import logging
 from typing import Any, Union, Annotated
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Header, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Header, Request, Form
 from fastapi.security import OAuth2PasswordRequestForm
 from odmantic.exceptions import DocumentNotFoundError
 
@@ -9,6 +9,7 @@ from pydantic_core import Url
 from stufio import crud, models, schemas
 from stufio.api import deps
 from stufio.core import security
+from stufio.core.oauth import verify_oauth_provider, OAuthError
 from stufio.utilities import (
     send_reset_password_email,
     send_magic_login_email,
@@ -313,59 +314,196 @@ async def resend_validation_email(
 
 
 @router.post("/oauth", response_model=schemas.Token | schemas.WebToken)
-async def login_with_oauth2(
-    form_data: OAuth2PasswordRequestForm = Depends(),
+async def login_with_oauth(
+    grant_type: str = Form(...),
+    username: str = Form(None),
+    password: str = Form(None),
+    token: str = Form(None),
+    authorization_code: str = Form(None),
+    identity_token: str = Form(None),
+    user_data: str = Form(None),
 ) -> Any:
     """
-    First step with OAuth2 compatible token login, get an access token for future requests.
+    OAuth endpoint supporting multiple authentication flows:
+    1. Traditional OAuth2 (username/password)
+    2. Google OAuth (ID token)
+    3. Apple OAuth (authorization code)
     """
-    user = await crud.user.authenticate(
-        email=form_data.username, password=form_data.password
-    )
-    if not form_data.password or not user or not crud.user.is_active(user):
-        raise HTTPException(
-            status_code=400, detail="Login failed; incorrect email or password"
-        )
+    
+    try:
+        # Handle traditional OAuth2 username/password flow
+        if grant_type == "password":
+            if not username or not password:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Username and password required for password grant type"
+                )
+            
+            user = await crud.user.authenticate(email=username, password=password)
+            if not user or not crud.user.is_active(user):
+                raise HTTPException(
+                    status_code=400, detail="Login failed; incorrect email or password"
+                )
 
-    if not user.email_validated and settings.EMAILS_ENABLED and settings.EMAILS_USER_CONFIRMATION_EMAIL:
+            if not user.email_validated and settings.EMAILS_ENABLED and settings.EMAILS_USER_CONFIRMATION_EMAIL:
+                if user.email_tokens_cnt >= settings.EMAILS_USER_CONFIRMATION_MAX_EMAILS:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Login failed; too many email validation attempts",
+                    )
 
-        if user.email_tokens_cnt >= settings.EMAILS_USER_CONFIRMATION_MAX_EMAILS:
+                tokens = security.create_magic_tokens(subject=user.id, pub=user.email)
+                if settings.EMAILS_ENABLED and user.email:
+                    data = schemas.EmailValidation(
+                        email=user.email,
+                        full_name=user.full_name,
+                        subject="Email Validation",
+                        token=tokens[0],
+                    )
+                    send_email_validation_email(data)
+                    await crud.user.increment_email_verification_counter(db_obj=user)
+
+                return {"claim": tokens[1]}
+
+        # Handle Google OAuth flow
+        elif grant_type == "google":
+            if not token:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Token required for Google OAuth"
+                )
+            
+            try:
+                # Verify Google ID token
+                oauth_user_info = await verify_oauth_provider("google", token=token)
+                
+                # Find or create user
+                user = await crud.user.find_oauth_user(
+                    provider="google",
+                    provider_user_id=oauth_user_info.provider_user_id,
+                    email=oauth_user_info.email
+                )
+                
+                if user:
+                    # Link Google account if not already linked
+                    if not user.google_id:
+                        user = await crud.user.link_google_account(
+                            user=user,
+                            google_id=oauth_user_info.provider_user_id,
+                            profile_picture_url=oauth_user_info.profile_picture_url
+                        )
+                else:
+                    # Create new user from Google OAuth
+                    if not oauth_user_info.email:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Email required from Google OAuth"
+                        )
+                    
+                    user = await crud.user.create_oauth_user(
+                        provider="google",
+                        provider_user_id=oauth_user_info.provider_user_id,
+                        email=oauth_user_info.email,
+                        full_name=oauth_user_info.full_name or "",
+                        profile_picture_url=oauth_user_info.profile_picture_url or ""
+                    )
+                
+            except OAuthError as e:
+                logger.error(f"Google OAuth verification failed: {str(e)}")
+                raise HTTPException(status_code=401, detail=str(e))
+
+        # Handle Apple OAuth flow
+        elif grant_type == "apple_oauth":
+            if not authorization_code:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Authorization code required for Apple OAuth"
+                )
+            
+            try:
+                # Verify Apple authorization code
+                oauth_user_info = await verify_oauth_provider(
+                    provider="apple",
+                    authorization_code=authorization_code,
+                    identity_token=identity_token,
+                    user_data=user_data
+                )
+                
+                # Find or create user
+                user = await crud.user.find_oauth_user(
+                    provider="apple",
+                    provider_user_id=oauth_user_info.provider_user_id,
+                    email=oauth_user_info.email
+                )
+                
+                if user:
+                    # Link Apple account if not already linked
+                    if not user.apple_id:
+                        user = await crud.user.link_apple_account(
+                            user=user,
+                            apple_id=oauth_user_info.provider_user_id,
+                            profile_picture_url=oauth_user_info.profile_picture_url
+                        )
+                else:
+                    # Create new user from Apple OAuth
+                    if not oauth_user_info.email:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Email required from Apple OAuth"
+                        )
+                    
+                    user = await crud.user.create_oauth_user(
+                        provider="apple",
+                        provider_user_id=oauth_user_info.provider_user_id,
+                        email=oauth_user_info.email,
+                        full_name=oauth_user_info.full_name or "",
+                        profile_picture_url=oauth_user_info.profile_picture_url or ""
+                    )
+                
+            except OAuthError as e:
+                logger.error(f"Apple OAuth verification failed: {str(e)}")
+                raise HTTPException(status_code=401, detail=str(e))
+
+        else:
             raise HTTPException(
                 status_code=400,
-                detail="Login failed; too many email validation attempts",
+                detail="Invalid grant_type. Supported values: 'password', 'google', 'apple_oauth'"
             )
 
-        tokens = security.create_magic_tokens(subject=user.id, pub=user.email)
-        if settings.EMAILS_ENABLED and user.email:
-            data = schemas.EmailValidation(
-                email=user.email,
-                full_name=user.full_name,
-                subject="Email Validation",
-                token=tokens[0],
+        # Ensure user is valid and active
+        if not user or not crud.user.is_active(user):
+            raise HTTPException(
+                status_code=400, 
+                detail="Login failed; user account not active"
             )
-            send_email_validation_email(data)
 
-            await crud.user.increment_email_verification_counter(db_obj=user)
+        # Check if TOTP is active
+        refresh_token = None
+        force_totp = True
 
-        return {"claim": tokens[1]}
+        if not user.totp_secret:
+            # No TOTP, so this concludes the login validation
+            force_totp = False
+            refresh_token = security.create_refresh_token(subject=user.id)
+            await crud.token.create(obj_in=refresh_token, user_obj=user)
 
-    # Check if totp active
-    refresh_token = None
-    force_totp = True
-
-    if not user.totp_secret:
-        # No TOTP, so this concludes the login validation
-        force_totp = False
-        refresh_token = security.create_refresh_token(subject=user.id)
-        await crud.token.create(obj_in=refresh_token, user_obj=user)
-
-    return {
-        "access_token": security.create_access_token(
-            subject=user.id, force_totp=force_totp
-        ),
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-    }
+        return {
+            "access_token": security.create_access_token(
+                subject=user.id, force_totp=force_totp
+            ),
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+        }
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        logger.error(f"OAuth authentication failed: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Authentication failed due to server error"
+        )
 
 
 @router.post("/totp", response_model=schemas.Token)

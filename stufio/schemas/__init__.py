@@ -28,6 +28,13 @@ from stufio.schemas.user import (
 )
 from stufio.schemas.emails import EmailContent, EmailValidation
 from stufio.schemas.totp import NewTOTP, EnableTOTP
+from stufio.schemas.oauth import (
+    GoogleOAuthRequest,
+    AppleOAuthRequest,
+    OAuthUserInfo,
+    GoogleUserInfo,
+    AppleUserInfo,
+)
 from stufio.schemas.db_metrics import (
     QueryTypeStats,
     ClickhouseMetrics,

@@ -54,7 +54,7 @@ class StufioSettings(BaseStufioSettings):
     APP_REGION: str = ""
 
     MULTI_MAX: int = 20
-    
+
     # Database metrics settings
     DB_METRICS_ENABLE: bool = True
     DB_METRICS_REPORT_INTERVAL_SECONDS: int = 300  # Report every 5 minutes
@@ -134,12 +134,12 @@ class StufioSettings(BaseStufioSettings):
         Validates that CLICKHOUSE_CLUSTER_NAME is provided when CLICKHOUSE_CLUSTER_DSN_LIST is used.
         """
         cluster_dsn_list = info.data.get("CLICKHOUSE_CLUSTER_DSN_LIST")
-        
+
         # If cluster DSN list is provided, cluster name is required
         if cluster_dsn_list and len(cluster_dsn_list) > 1:
             if not v or not isinstance(v, str) or not v.strip():
                 raise ValueError("CLICKHOUSE_CLUSTER_NAME is required when CLICKHOUSE_CLUSTER_DSN_LIST is provided")
-        
+
         return v.strip() if v else None
 
     @field_validator("CLICKHOUSE_CLUSTER_DSN_LIST", mode="before")
@@ -151,34 +151,34 @@ class StufioSettings(BaseStufioSettings):
         # If no DSN list provided, default to a list with just the main DSN
         if not v:
             return [info.data["CLICKHOUSE_DSN"]]
-            
+
         # If APP_REGION isn't set, return the original list
         app_region = info.data.get("APP_REGION")
         if not app_region:
             return v
-            
+
         try:
             # Parse each DSN to check for region in hostname
             region_dsns = []
             other_dsns = []
-            
+
             for dsn in v:
                 # Skip empty DSNs
                 if not dsn or not isinstance(dsn, str):
                     continue
-                    
+
                 # Parse the DSN
                 parsed = urlparse(dsn)
-                
+
                 # Check if hostname contains region
                 if f"-{app_region}" in parsed.netloc.lower():
                     region_dsns.append(dsn)
                 else:
                     other_dsns.append(dsn)
-                    
+
             # Return region-specific DSNs first, followed by others
             return region_dsns + other_dsns
-            
+
         except Exception:
             # If parsing failed, return the original list
             return v
@@ -237,6 +237,15 @@ class StufioSettings(BaseStufioSettings):
 
     # Add a setting for internal endpoints prefix
     API_INTERNAL_STR: str = "/internal"
+
+    # OAuth Settings
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+    APPLE_CLIENT_ID: Optional[str] = None
+    APPLE_TEAM_ID: Optional[str] = None
+    APPLE_KEY_ID: Optional[str] = None
+    APPLE_PRIVATE_KEY_PATH: Optional[str] = None
+    APPLE_REDIRECT_URI: str = "http://localhost:3000/auth/callback/apple"
 
     # Validator to handle API_INTERNAL_CLIENTS as comma-separated string
     @field_validator("API_INTERNAL_CLIENTS", mode="before")

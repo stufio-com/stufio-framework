@@ -10,15 +10,17 @@ class CRUDUser(CRUDMongo[User, UserCreate, UserUpdate]):
         return await self.get_by_field("email", email)
     
     async def create(self, obj_in: UserCreate) -> User:
-        user = {
+        user_data = {
             **obj_in.model_dump(),
             "email": obj_in.email,
             "hashed_password": get_password_hash(obj_in.password) if obj_in.password is not None else None,
             "full_name": obj_in.full_name,
             "is_superuser": obj_in.is_superuser,
         }
-
-        return await super().create(User(**user))
+        
+        # Create UserCreate object for parent class
+        user_create = UserCreate(**user_data)
+        return await super().create(user_create)
 
     async def update(self, db_obj: User, update_data: Union[UserUpdate, Dict[str, Any]]) -> User:
         if isinstance(update_data, dict):
@@ -136,5 +138,80 @@ class CRUDUser(CRUDMongo[User, UserCreate, UserUpdate]):
     def has_all_groups(self, user: User, group_ids: List[ObjectId]) -> bool:
         """Check if a user is in all of the specified groups"""
         return all(group_id in user.user_groups for group_id in group_ids)
+    
+    # OAuth-specific methods
+    async def get_by_google_id(self, google_id: str) -> Optional[User]:
+        """Get user by Google ID"""
+        return await self.get_by_field("google_id", google_id)
+    
+    async def get_by_apple_id(self, apple_id: str) -> Optional[User]:
+        """Get user by Apple ID"""
+        return await self.get_by_field("apple_id", apple_id)
+    
+    async def link_google_account(self, user: User, google_id: str, profile_picture_url: Optional[str] = None) -> User:
+        """Link Google account to existing user"""
+        update_data = {
+            "google_id": google_id,
+            "oauth_provider": "google" if not user.oauth_provider else user.oauth_provider
+        }
+        if profile_picture_url:
+            update_data["profile_picture_url"] = profile_picture_url
+            
+        return await self.update(db_obj=user, update_data=update_data)
+    
+    async def link_apple_account(self, user: User, apple_id: str, profile_picture_url: Optional[str] = None) -> User:
+        """Link Apple account to existing user"""
+        update_data = {
+            "apple_id": apple_id,
+            "oauth_provider": "apple" if not user.oauth_provider else user.oauth_provider
+        }
+        if profile_picture_url:
+            update_data["profile_picture_url"] = profile_picture_url
+            
+        return await self.update(db_obj=user, update_data=update_data)
+    
+    async def create_oauth_user(self, provider: str, provider_user_id: str, email: str, 
+                              full_name: str = "", profile_picture_url: str = "") -> User:
+        """Create new user from OAuth provider"""
+        user_data = {
+            "email": email,
+            "full_name": full_name,
+            "email_validated": True,  # OAuth providers verify email
+            "is_active": True,
+        }
+        
+        # Create UserCreate object
+        user_create = UserCreate(**user_data)
+        created_user = await super().create(user_create)
+        
+        # Update with OAuth-specific fields after creation
+        oauth_update_data = {
+            "oauth_provider": provider,
+            "profile_picture_url": profile_picture_url
+        }
+        
+        # Set provider-specific ID
+        if provider == "google":
+            oauth_update_data["google_id"] = provider_user_id
+        elif provider == "apple":
+            oauth_update_data["apple_id"] = provider_user_id
+        
+        return await self.update(db_obj=created_user, update_data=oauth_update_data)
+    
+    async def find_oauth_user(self, provider: str, provider_user_id: str, email: Optional[str] = None) -> Optional[User]:
+        """Find user by OAuth provider info - first by provider ID, then by email"""
+        # First try to find by provider-specific ID
+        if provider == "google":
+            user = await self.get_by_google_id(provider_user_id)
+        elif provider == "apple":
+            user = await self.get_by_apple_id(provider_user_id)
+        else:
+            user = None
+            
+        # If not found by provider ID and email is available, try by email
+        if not user and email:
+            user = await self.get_by_email(email)
+            
+        return user
 
 user = CRUDUser(User)

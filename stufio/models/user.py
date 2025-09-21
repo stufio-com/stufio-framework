@@ -22,6 +22,12 @@ class User(MongoBase):
     totp_counter: int = Field(default=0)
     # Add user groups as a list of ObjectIds with index
     user_groups: List[ObjectId] = Field(default_factory=list, index=True)
+    
+    # OAuth provider fields
+    google_id: str = Field(default="", index=True)
+    apple_id: str = Field(default="", index=True)
+    oauth_provider: str = Field(default="", index=True)
+    profile_picture_url: str = Field(default="")
 
     @model_validator(mode="before")
     @classmethod
@@ -33,6 +39,9 @@ class User(MongoBase):
             if field in data:
                 # Force conversion to string, even if None
                 data[field] = str(data[field] or "")
+        
+        # Add OAuth provider fields to string fields
+        string_fields.extend(["google_id", "apple_id", "oauth_provider", "profile_picture_url"])
         
         # Ensure integer fields are properly typed
         int_fields = ["email_tokens_cnt", "totp_counter"]
