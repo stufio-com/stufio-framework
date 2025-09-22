@@ -242,11 +242,20 @@ class StufioSettings(BaseStufioSettings):
     # OAuth Settings
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None
+    
+    # Apple OAuth Web (existing)
     APPLE_CLIENT_ID: Optional[str] = None
     APPLE_TEAM_ID: Optional[str] = None
     APPLE_KEY_ID: Optional[str] = None
     APPLE_PRIVATE_KEY_PATH: Optional[str] = None
     APPLE_REDIRECT_URI: str = "http://localhost:3000/auth/callback/apple"
+    
+    # Apple OAuth iOS (new)
+    APPLE_IOS_CLIENT_ID: Optional[str] = None
+    APPLE_IOS_TEAM_ID: Optional[str] = None
+    APPLE_IOS_KEY_ID: Optional[str] = None
+    APPLE_IOS_PRIVATE_KEY_PATH: Optional[str] = None
+    APPLE_IOS_REDIRECT_URI: str = "http://localhost:3000/auth/callback/apple/ios"
 
     # Validator to handle API_INTERNAL_CLIENTS as comma-separated string
     @field_validator("API_INTERNAL_CLIENTS", mode="before")

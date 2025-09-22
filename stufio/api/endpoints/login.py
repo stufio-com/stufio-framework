@@ -412,7 +412,7 @@ async def login_with_oauth(
                 logger.error(f"Google OAuth verification failed: {str(e)}")
                 raise HTTPException(status_code=401, detail=str(e))
 
-        # Handle Apple OAuth flow
+        # Handle Apple OAuth flow (Web)
         elif grant_type == "apple_oauth":
             if not authorization_code:
                 raise HTTPException(
@@ -464,10 +464,62 @@ async def login_with_oauth(
                 logger.error(f"Apple OAuth verification failed: {str(e)}")
                 raise HTTPException(status_code=401, detail=str(e))
 
+        # Handle Apple OAuth flow (iOS)
+        elif grant_type == "apple_ios":
+            if not authorization_code:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Authorization code required for Apple iOS OAuth"
+                )
+            
+            try:
+                # Verify Apple iOS authorization code
+                oauth_user_info = await verify_oauth_provider(
+                    provider="apple_ios",
+                    authorization_code=authorization_code,
+                    identity_token=identity_token,
+                    user_data=user_data
+                )
+                
+                # Find or create user
+                user = await crud.user.find_oauth_user(
+                    provider="apple",
+                    provider_user_id=oauth_user_info.provider_user_id,
+                    email=oauth_user_info.email
+                )
+                
+                if user:
+                    # Link Apple account if not already linked
+                    if not user.apple_id:
+                        user = await crud.user.link_apple_account(
+                            user=user,
+                            apple_id=oauth_user_info.provider_user_id,
+                            profile_picture_url=oauth_user_info.profile_picture_url
+                        )
+                else:
+                    # Create new user from Apple OAuth
+                    if not oauth_user_info.email:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Email required from Apple iOS OAuth"
+                        )
+                    
+                    user = await crud.user.create_oauth_user(
+                        provider="apple",
+                        provider_user_id=oauth_user_info.provider_user_id,
+                        email=oauth_user_info.email,
+                        full_name=oauth_user_info.full_name or "",
+                        profile_picture_url=oauth_user_info.profile_picture_url or ""
+                    )
+                
+            except OAuthError as e:
+                logger.error(f"Apple iOS OAuth verification failed: {str(e)}")
+                raise HTTPException(status_code=401, detail=str(e))
+
         else:
             raise HTTPException(
                 status_code=400,
-                detail="Invalid grant_type. Supported values: 'password', 'google', 'apple_oauth'"
+                detail="Invalid grant_type. Supported values: 'password', 'google', 'apple_oauth', 'apple_ios'"
             )
 
         # Ensure user is valid and active

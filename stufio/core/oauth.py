@@ -83,9 +83,12 @@ class AppleOAuthVerifier:
     APPLE_KEYS_URL = "https://appleid.apple.com/auth/keys"
 
     @staticmethod
-    def _create_client_secret() -> str:
+    def _create_client_secret(use_ios_config: bool = False) -> str:
         """
         Create client secret JWT for Apple OAuth
+        
+        Args:
+            use_ios_config: If True, use iOS configuration, otherwise use web configuration
         
         Returns:
             str: Signed JWT client secret
@@ -95,10 +98,16 @@ class AppleOAuthVerifier:
         """
         try:
             # Get Apple configuration from settings
-            team_id = getattr(settings, 'APPLE_TEAM_ID', None)
-            key_id = getattr(settings, 'APPLE_KEY_ID', None)  
-            client_id = getattr(settings, 'APPLE_CLIENT_ID', None)
-            private_key_path = getattr(settings, 'APPLE_PRIVATE_KEY_PATH', None)
+            if use_ios_config:
+                team_id = getattr(settings, 'APPLE_IOS_TEAM_ID', None)
+                key_id = getattr(settings, 'APPLE_IOS_KEY_ID', None)  
+                client_id = getattr(settings, 'APPLE_IOS_CLIENT_ID', None)
+                private_key_path = getattr(settings, 'APPLE_IOS_PRIVATE_KEY_PATH', None)
+            else:
+                team_id = getattr(settings, 'APPLE_TEAM_ID', None)
+                key_id = getattr(settings, 'APPLE_KEY_ID', None)  
+                client_id = getattr(settings, 'APPLE_CLIENT_ID', None)
+                private_key_path = getattr(settings, 'APPLE_PRIVATE_KEY_PATH', None)
 
             if not all([team_id, key_id, client_id, private_key_path]):
                 raise OAuthError("Apple OAuth configuration incomplete")
@@ -138,12 +147,13 @@ class AppleOAuthVerifier:
             raise OAuthError(f"Apple client secret creation failed: {str(e)}")
 
     @staticmethod
-    async def _exchange_authorization_code(authorization_code: str) -> Dict[str, Any]:
+    async def _exchange_authorization_code(authorization_code: str, use_ios_config: bool = False) -> Dict[str, Any]:
         """
         Exchange Apple authorization code for tokens
         
         Args:
             authorization_code: Apple authorization code
+            use_ios_config: If True, use iOS configuration, otherwise use web configuration
             
         Returns:
             Dict containing access_token, id_token, etc.
@@ -152,15 +162,22 @@ class AppleOAuthVerifier:
             OAuthError: If token exchange fails
         """
         try:
-            client_secret = AppleOAuthVerifier._create_client_secret()
-            client_id = getattr(settings, 'APPLE_CLIENT_ID', None)
-
-            # Determine redirect URI based on environment
-            redirect_uri = getattr(
-                settings,
-                "APPLE_REDIRECT_URI",
-                "http://localhost:3000/auth/callback/apple",
-            )
+            client_secret = AppleOAuthVerifier._create_client_secret(use_ios_config)
+            
+            if use_ios_config:
+                client_id = getattr(settings, 'APPLE_IOS_CLIENT_ID', None)
+                redirect_uri = getattr(
+                    settings,
+                    "APPLE_IOS_REDIRECT_URI",
+                    "http://localhost:3000/auth/callback/apple/ios",
+                )
+            else:
+                client_id = getattr(settings, 'APPLE_CLIENT_ID', None)
+                redirect_uri = getattr(
+                    settings,
+                    "APPLE_REDIRECT_URI",
+                    "http://localhost:3000/auth/callback/apple",
+                )
 
             data = {
                 'client_id': client_id,
@@ -206,12 +223,13 @@ class AppleOAuthVerifier:
             raise OAuthError(f"Failed to fetch Apple public keys: {str(e)}")
 
     @staticmethod
-    async def _verify_id_token(id_token_str: str) -> Dict[str, Any]:
+    async def _verify_id_token(id_token_str: str, use_ios_config: bool = False) -> Dict[str, Any]:
         """
         Verify Apple ID token with proper signature verification
         
         Args:
             id_token_str: Apple ID token (JWT)
+            use_ios_config: If True, use iOS configuration, otherwise use web configuration
             
         Returns:
             Dict: Decoded token payload
@@ -241,9 +259,14 @@ class AppleOAuthVerifier:
                 raise OAuthError(f"Public key not found for key ID: {kid}")
             
             # Get client ID for audience validation
-            client_id = getattr(settings, 'APPLE_CLIENT_ID', None)
-            if not client_id:
-                raise OAuthError("Apple client ID not configured")
+            if use_ios_config:
+                client_id = getattr(settings, 'APPLE_IOS_CLIENT_ID', None)
+                if not client_id:
+                    raise OAuthError("Apple iOS client ID not configured")
+            else:
+                client_id = getattr(settings, 'APPLE_CLIENT_ID', None)
+                if not client_id:
+                    raise OAuthError("Apple client ID not configured")
             
             # Convert JWK to RSA public key object
             public_key = RSAAlgorithm.from_jwk(public_key_jwk)
@@ -281,7 +304,8 @@ class AppleOAuthVerifier:
     async def verify_authorization_code(
         authorization_code: str, 
         identity_token: Optional[str] = None,
-        user_data: Optional[str] = None
+        user_data: Optional[str] = None,
+        use_ios_config: bool = False
     ) -> AppleUserInfo:
         """
         Verify Apple authorization code and extract user information
@@ -290,6 +314,7 @@ class AppleOAuthVerifier:
             authorization_code: Apple authorization code
             identity_token: Optional Apple ID token
             user_data: Optional user data JSON string (first login only)
+            use_ios_config: If True, use iOS configuration, otherwise use web configuration
             
         Returns:
             AppleUserInfo: Verified user information
@@ -299,7 +324,7 @@ class AppleOAuthVerifier:
         """
         try:
             # Exchange authorization code for tokens
-            token_response = await AppleOAuthVerifier._exchange_authorization_code(authorization_code)
+            token_response = await AppleOAuthVerifier._exchange_authorization_code(authorization_code, use_ios_config)
 
             # Use provided identity_token or the one from token exchange
             id_token_str = identity_token or token_response.get('id_token')
@@ -308,7 +333,7 @@ class AppleOAuthVerifier:
                 raise OAuthError("No ID token available from Apple")
 
             # Verify ID token
-            decoded_token = await AppleOAuthVerifier._verify_id_token(id_token_str)
+            decoded_token = await AppleOAuthVerifier._verify_id_token(id_token_str, use_ios_config)
 
             # Extract user information
             apple_user_id = decoded_token['sub']
@@ -354,7 +379,7 @@ async def verify_oauth_provider(
     Verify OAuth token/code for any supported provider
     
     Args:
-        provider: OAuth provider name ('google' or 'apple')
+        provider: OAuth provider name ('google', 'apple', or 'apple_ios')
         token: OAuth token (for Google ID token)
         authorization_code: Authorization code (for Apple)
         identity_token: ID token (for Apple, optional)
@@ -375,7 +400,14 @@ async def verify_oauth_provider(
         if not authorization_code:
             raise OAuthError("Apple OAuth requires authorization code")
         return await AppleOAuthVerifier.verify_authorization_code(
-            authorization_code, identity_token, user_data
+            authorization_code, identity_token, user_data, use_ios_config=False
+        )
+    
+    elif provider == 'apple_ios':
+        if not authorization_code:
+            raise OAuthError("Apple iOS OAuth requires authorization code")
+        return await AppleOAuthVerifier.verify_authorization_code(
+            authorization_code, identity_token, user_data, use_ios_config=True
         )
     
     else:
